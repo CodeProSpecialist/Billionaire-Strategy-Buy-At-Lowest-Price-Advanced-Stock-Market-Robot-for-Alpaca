@@ -19,7 +19,7 @@ with its "Billionaire buy at low price strategy."
 ***** If you purchased or sold stocks through your stock broker's website or through other services, then the following steps must be repeated before this Stock Trading Robot can import the changes in your stock market portfolio and create a new database. The following steps should also fix the errors related to not being able to store a year-month-day for the stock position in the database; that are caused by stock trading without this stock market robot making the stock trades. ***** I have found that this stock market robot is not 100% fully initialized to sell stocks tomorrow until it has bought or sold at least 1 share of stock and the share of stock has been listed under "Trade History In This Robot's Database." Making stock trades without using this stock market robot will also cause an error of not selling your stocks tomorrow unless you perform the following steps:
 
  1.) Place 8 to 28 stock symbols to buy in the file named:     electricity-or-utility-stocks-to-buy-list.txt
-    2.) Stop the python3 program named:      buy-and-automatically-sell-for-a-profit-robot.py
+    2.) Stop the python3 program named:      billionaire-strategy-buy-lowest-price-stock-market-robot.py
     3.) Delete the trading_bot.db file
     4.) restart this Robot with the command:      python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 
@@ -76,6 +76,10 @@ python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 open a second command line terminal and run the following command:
 
 python3 performance-stock-list-writer.py
+
+OR:
+
+python3 new-performance-stock-list-writer.py
 
 The performance-stock-list-writer.py python program will make sure that only successful stocks are purchased by the Advanced Stock Market Trading Robot.
 
