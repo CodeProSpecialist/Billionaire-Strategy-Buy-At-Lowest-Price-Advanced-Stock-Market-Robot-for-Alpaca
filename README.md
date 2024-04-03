@@ -14,7 +14,7 @@ with its buy at low price strategy.
  1.) Place 8 to 28 stock symbols to buy in the file named:     electricity-or-utility-stocks-to-buy-list.txt
     2.) Stop the python3 program named:      buy-and-automatically-sell-for-a-profit-robot.py
     3.) Delete the trading_bot.db file
-    4.) restart this Robot with the command:      python3 buy-and-automatically-sell-for-a-profit-robot.py
+    4.) restart this Robot with the command:      python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 
     Caution: If you buy or sell stocks without using this stock market trading robot, 
     then this stock market robot will need the steps 1 thru 4, that are shown above, repeated and you will need to wait 
@@ -64,7 +64,7 @@ Do the following with a non-root user account: After placing your alpaca keys at
 
 You will need 2 command line terminals open to fully operate the Advanced Stock Market Trading Robot because one terminal window is the robot and the other terminal window is for updating the list of stocks to buy with the most successful energy or electric utility company stocks. To select different stocks to buy and allow up to 24 hours for the stocks list to update, edit the list of stocks in the file named "list-of-stock-symbols-to-scan.txt". To immediatly select different stock symbols to buy, then edit the list of stocks in the file named "electricity-or-utility-stocks-to-buy-list.txt" and also in the file named "list-of-stock-symbols-to-scan.txt".
 
-python3 buy-and-automatically-sell-for-a-profit-robot.py
+python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 
 open a second command line terminal and run the following command:
 
