@@ -2,7 +2,7 @@
 This is the Billionaire Strategy for Buying Great Stocks at the Lowest Price becuase you can never expect that the Sell Price is a profit, although you have the most control over the Buy Price. 
 
 ***************************************************************************************
-This is my Original, Most Successful Stock Market Robot that I brought back from September 2023 since it was even more profitable 
+This is my Original, Most Successful Advanced Stock Market Trading Robot that I brought back from September 2023 since it was even more profitable 
 with its buy at low price strategy. 
 
 ***************************************************************************************
