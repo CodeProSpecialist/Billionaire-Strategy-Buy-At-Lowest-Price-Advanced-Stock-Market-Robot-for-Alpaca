@@ -1,3 +1,5 @@
+#python 3.10
+
 import time
 import pytz
 import yfinance as yf
