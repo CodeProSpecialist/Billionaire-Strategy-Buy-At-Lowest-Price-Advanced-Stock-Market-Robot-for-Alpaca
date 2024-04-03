@@ -7,7 +7,7 @@ with its "Billionaire buy at low price strategy."
 
 ***************************************************************************************
 
-![Screenshot from 2024-04-03 14-10-34](https://github.com/CodeProSpecialist/Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca/assets/111866070/c0909387-f09f-4f79-8271-135812ad578f)
+![Screenshot from 2024-04-03 14-24-29](https://github.com/CodeProSpecialist/Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca/assets/111866070/5fd3b715-cc74-4bf2-b154-66a2828c6cf0)
 
 
 ![Screenshot from 2024-04-03 14-12-11](https://github.com/CodeProSpecialist/Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca/assets/111866070/886c4e8d-ce59-4ae9-bbcf-371039436ff6)
