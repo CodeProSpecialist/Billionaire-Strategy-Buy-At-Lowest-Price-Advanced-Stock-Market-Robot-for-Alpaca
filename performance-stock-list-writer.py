@@ -9,8 +9,9 @@ def calculate_percentage_change(stock_data, period):
     if stock_data.empty:
         return 0  # Default value when data is unavailable
 
-    start_price = stock_data['Open'][0]
-    end_price = stock_data['Close'][-1]
+    start_price = stock_data['Open'].iloc[0]
+    end_price = stock_data['Close'].iloc[-1]
+
     percentage_change = ((end_price - start_price) / start_price) * 100
     return percentage_change
 
