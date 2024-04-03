@@ -453,6 +453,10 @@ def main():
 
             cash_balance = round(float(api.get_account().cash), 2)
             print("------------------------------------------------------------------------------------")
+            print("\n")
+            print("*****************************************************")
+            print("******** Billionaire Buying Strategy Version ********")
+            print("*****************************************************")
             print("2023 Edition of the Advanced Stock Market Trading Robot, Version 2 ")
             print("by https://github.com/CodeProSpecialist")
             print("------------------------------------------------------------------------------------")
