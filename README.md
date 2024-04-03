@@ -3,16 +3,23 @@ This is the Billionaire Strategy for Buying Great Stocks at the Lowest Price bec
 
 ***************************************************************************************
 This is my Original, Most Successful Advanced Stock Market Trading Robot that I brought back from September 2023 since it was even more profitable 
-with its buy at low price strategy. 
+with its "Billionaire buy at low price strategy."  
 
 ***************************************************************************************
 
-***** This program will only work if you have at least 1 stock symbol in the electricity-or-utility-stocks-to-buy-list.txt because of the functionality of the python code to analyze stocks to buy at a future time. Otherwise, you will most likely see errors in the log-file-of-buy-and-sell-signals.txt. A new database file will need to be created if you started this robot without owning any stocks. Delete the database file named trading_bot.db before restarting the stockbot if the stockbot was running without any owned stock positions. Stop and Start the Stock Trading Robot after you have purchased at least 1 share of stock to create a new database file. I recommend linking your Alpaca Stock Trading Account with TradingView to purchase at least 1 stock position. Deciding to manually sell stocks more quickly before tomorrow can also easily be done on TradingView or on the Alpaca website for those occassional situations where your stock selling needs to be done today instead of tomorrow.
+![Screenshot from 2024-04-03 14-24-29](https://github.com/CodeProSpecialist/Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca/assets/111866070/5fd3b715-cc74-4bf2-b154-66a2828c6cf0)
 
-***** If you purchased or sold stocks through Alpaca's website or through other services, then the following steps must be repeated before this Stock Trading Robot can import the changes in your stock market portfolio and create a new database. The following steps should also fix the errors related to not being able to store a year-month-day for the stock position in the database; that are caused by stock trading without this stock market robot making the stock trades. ***** I have found that this stock market robot is not 100% fully initialized to sell stocks tomorrow until it has bought or sold at least 1 share of stock and the share of stock has been listed under "Trade History In This Robot's Database." Making stock trades without using this stock market robot will also cause an error of not selling your stocks tomorrow unless you perform the following steps:
+
+![Screenshot from 2024-04-03 14-12-11](https://github.com/CodeProSpecialist/Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca/assets/111866070/886c4e8d-ce59-4ae9-bbcf-371039436ff6)
+
+
+
+***** This program will only work if you have at least 1 stock symbol in the electricity-or-utility-stocks-to-buy-list.txt because of the functionality of the python code to analyze stocks to buy at a future time. Otherwise, you will most likely see errors in the log-file-of-buy-and-sell-signals.txt. A new database file will need to be created if you started this robot without owning any stocks. Delete the database file named trading_bot.db before restarting the stockbot if the stockbot was running without any owned stock positions. Stop and Start the Stock Trading Robot after you have purchased at least 1 share of stock to create a new database file. I recommend loggin in to your stock broker's website to initially purchase at least 1 stock position. Deciding to manually sell stocks more quickly before tomorrow can also easily be done on your Broker's website for those occassional situations where your stock selling needs to be done today instead of tomorrow.
+
+***** If you purchased or sold stocks through your stock broker's website or through other services, then the following steps must be repeated before this Stock Trading Robot can import the changes in your stock market portfolio and create a new database. The following steps should also fix the errors related to not being able to store a year-month-day for the stock position in the database; that are caused by stock trading without this stock market robot making the stock trades. ***** I have found that this stock market robot is not 100% fully initialized to sell stocks tomorrow until it has bought or sold at least 1 share of stock and the share of stock has been listed under "Trade History In This Robot's Database." Making stock trades without using this stock market robot will also cause an error of not selling your stocks tomorrow unless you perform the following steps:
 
  1.) Place 8 to 28 stock symbols to buy in the file named:     electricity-or-utility-stocks-to-buy-list.txt
-    2.) Stop the python3 program named:      buy-and-automatically-sell-for-a-profit-robot.py
+    2.) Stop the python3 program named:      billionaire-strategy-buy-lowest-price-stock-market-robot.py
     3.) Delete the trading_bot.db file
     4.) restart this Robot with the command:      python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 
@@ -70,11 +77,15 @@ open a second command line terminal and run the following command:
 
 python3 performance-stock-list-writer.py
 
+OR:
+
+python3 new-performance-stock-list-writer.py
+
 The performance-stock-list-writer.py python program will make sure that only successful stocks are purchased by the Advanced Stock Market Trading Robot.
 
 Disclaimer:
 
-This software is not affiliated with or endorsed by TradingView or Alpaca Securities, LLC. It aims to be a valuable tool for stock market trading, but all trading involves risks. Use it responsibly and consider seeking advice from financial professionals.
+This software is not affiliated with or endorsed Alpaca Securities, LLC. It aims to be a valuable tool for stock market trading, but all trading involves risks. Use it responsibly and consider seeking advice from financial professionals.
 
 Ready to elevate your trading game? Download the 2023 Edition of the Advanced Stock Market Trading Robot, Version 2, and get started today!
 
