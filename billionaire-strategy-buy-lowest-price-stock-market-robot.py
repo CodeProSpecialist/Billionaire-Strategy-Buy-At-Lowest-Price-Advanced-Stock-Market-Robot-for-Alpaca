@@ -70,7 +70,8 @@ class TradeHistory(Base):
     action = Column(String)  # 'buy' or 'sell'
     quantity = Column(Integer)
     price = Column(Float)
-    date = Column(DateTime)
+    date = Column(String)
+    # the above date is string data format in the database
 
 
 class Position(Base):
