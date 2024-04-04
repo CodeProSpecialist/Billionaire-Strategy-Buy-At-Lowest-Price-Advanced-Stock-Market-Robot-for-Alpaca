@@ -93,8 +93,8 @@ if __name__ == "__main__":
 
     while True:
         try:
-            # Get the current date and time in Eastern Time
-            current_time = datetime.now(et)
+            # Convert current time to Eastern Time
+            current_time = datetime.now().astimezone(et)
             current_hour = current_time.hour
             current_minute = current_time.minute
             current_weekday = current_time.weekday()
