@@ -82,8 +82,8 @@ def calculate_next_run_time():
     else:  # If it's outside market hours
         print("This program only runs from 9:00 AM to 4:00 PM, Monday through Friday.")
 
-        # Calculate the next run time for the start of the next market day
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        # Calculate the next run time for the start of the next market day without adding an extra day
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0)
 
     return next_run_time
 
@@ -129,7 +129,7 @@ if __name__ == "__main__":
             else:
                 # If outside market hours, display the next run time
                 next_run_time = calculate_next_run_time()
-                print(f"Next run time: {next_run_time.strftime('%I:%M:%S %p | %m-%d-%Y')} (Eastern Time)")
+                print(f"Next run time: {next_run_time.strftime('%I:%M:%S %p')} (Eastern Time)")
 
                 # Sleep until the next run time
                 time.sleep((next_run_time - datetime.now(et)).total_seconds())
