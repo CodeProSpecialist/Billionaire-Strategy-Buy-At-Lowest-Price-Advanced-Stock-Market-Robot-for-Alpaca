@@ -79,7 +79,8 @@ class Position(Base):
     symbol = Column(String, primary_key=True)
     quantity = Column(Integer)
     avg_price = Column(Float)
-    purchase_date = Column(DateTime)
+    purchase_date = Column(String)
+    # the above date is string data format in the database
 
 
 # Initialize SQLAlchemy
