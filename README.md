@@ -2,6 +2,8 @@
 
 This is the Billionaire Strategy for Buying Great Stocks at the Lowest Price becuase you can never expect that the Sell Price is a profit, although you have the most control over the Buy Price. 
 
+I recommend this robot for the slowest stock market days like Monday, Tuesday, and Wednesday. Then for more Bull Market days like Thursday and Friday, run the Bull Market Trading Robot. 
+
     This buy low strategy was working to make a profit no matter how bad the stocks were moving. 
 The only thing that a personal can control is the fact of buying at the lowest price possible. That is the strategy and only robots seem to have the patience to wait all day to buy at the lowest prices.  
 ( The Billionaire Stock Market Strategy is that there is no guarantee that the stock will sell at a higher price, and so you can only control the action of buying at the lowest price possible. ) 
