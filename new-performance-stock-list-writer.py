@@ -61,29 +61,16 @@ def calculate_next_run_time():
     current_time = datetime.now(et)
     current_hour = current_time.hour
     current_minute = current_time.minute
+    current_second = current_time.second
     current_weekday = current_time.weekday()
 
-    # Calculate the next run time based on the current time
-    if (
-            0 <= current_weekday <= 4 and
-            (current_hour == 9 and current_minute >= 0) or
-            (9 < current_hour < 16) or
-            (current_hour == 16 and current_minute == 0)
-    ):
-        # If currently within market hours, calculate next run time for the next update
-        next_run_time = current_time + timedelta(minutes=(30 - current_minute % 30))
-    elif current_weekday == 6:  # If it's Sunday, set the next run time to Monday
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    elif current_weekday == 4:  # If it's Friday, set the next run time to Monday or the end of Friday market hours
-        if current_hour >= 16:  # If it's after market hours on Friday, set the next run time to Monday
-            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
-        else:  # If it's before market hours on Friday, set the next run time to the end of Friday market hours
-            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
-    else:  # If it's outside market hours
-        print("This program only runs from 9:00 AM to 4:00 PM, Monday through Friday.")
-
-        # Calculate the next run time for the start of the next market day without adding an extra day
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0)
+    # Check if it's Friday night after 8:00 PM or Saturday
+    if current_weekday == 5 or (current_weekday == 4 and current_hour >= 20):
+        # If it's Friday night after 8:00 PM or Saturday, set the next run time to Sunday
+        next_run_time = current_time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=(6 - current_weekday))
+    else:
+        # Calculate the next run time based on the current time
+        next_run_time = current_time + timedelta(seconds=180)  # Run every 180 seconds
 
     return next_run_time
 
@@ -102,37 +89,35 @@ if __name__ == "__main__":
             current_minute = current_time.minute
             current_weekday = current_time.weekday()
 
-            # Check if it's a weekday (Monday to Friday) and within market hours
-            if (
-                    0 <= current_weekday <= 4 and
-                    ((current_hour == 9 and current_minute >= 0) or
-                     (9 < current_hour < 16) or
-                     (current_hour == 16 and current_minute == 0))):
-                print("")
-                print(f" Eastern Time: {current_time.strftime('%I:%M:%S %p | %m-%d-%Y')} ")
-                print("")
-
-                stocks_to_scan = read_stock_symbols(input_filename)
-                top_increase_stocks = get_top_increase_stocks(stocks_to_scan)
-
-                # Print the top increase stocks to the terminal
-                print_top_stocks(top_increase_stocks)
-
-                print("")
-                print("Writing the list of stocks if they increased +0.05% today: ")
-                print("")
-                # Write the top increase stocks to the output file and display on the screen
-                write_top_stocks_to_file(output_filename, top_increase_stocks)
-                for line in open(output_filename, 'r'):
-                    print(line, end='')
-
-            else:
-                # If outside market hours, display the next run time
-                next_run_time = calculate_next_run_time()
+            # Check if it's Friday night after 8:00 PM or Saturday
+            if current_weekday == 5 or (current_weekday == 4 and current_hour >= 20):
+                # Sleep until Sunday
+                next_run_time = current_time + timedelta(days=(6 - current_weekday), hours=(24 - current_hour), minutes=(60 - current_minute))
                 print(f"Next run time: {next_run_time.strftime('%I:%M:%S %p')} (Eastern Time)")
+                time.sleep((next_run_time - current_time).total_seconds())
+                continue
 
-                # Sleep until the next run time
-                time.sleep((next_run_time - datetime.now(et)).total_seconds())
+            print(f" Eastern Time: {current_time.strftime('%I:%M:%S %p | %m-%d-%Y')} ")
+
+            stocks_to_scan = read_stock_symbols(input_filename)
+            top_increase_stocks = get_top_increase_stocks(stocks_to_scan)
+
+            # Print the top increase stocks to the terminal
+            print_top_stocks(top_increase_stocks)
+
+            print("Writing the list of stocks if they increased +0.05% today: ")
+
+            # Write the top increase stocks to the output file and display on the screen
+            write_top_stocks_to_file(output_filename, top_increase_stocks)
+            for line in open(output_filename, 'r'):
+                print(line, end='')
+
+            # Calculate the next run time
+            next_run_time = calculate_next_run_time()
+            print(f"Next run time: {next_run_time.strftime('%I:%M:%S %p')} (Eastern Time)")
+
+            # Sleep until the next run time
+            time.sleep((next_run_time - current_time).total_seconds())
 
         except Exception as e:
             print(f"Error in the main loop: {e}")
