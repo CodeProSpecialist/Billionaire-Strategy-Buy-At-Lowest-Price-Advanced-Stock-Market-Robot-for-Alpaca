@@ -64,12 +64,26 @@ def calculate_next_run_time():
     current_weekday = current_time.weekday()
 
     # Calculate the next run time based on the current time
-    if current_weekday == 5:  # If it's Saturday, set the next run time to Monday
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=2)
-    elif current_weekday == 4 and current_hour >= 16:  # If it's Friday night, set the next run time to Monday
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
-    else:  # Otherwise, run every 60 seconds
-        next_run_time = current_time + timedelta(seconds=60)
+    if (
+            0 <= current_weekday <= 4 and
+            (current_hour == 9 and current_minute >= 0) or
+            (9 < current_hour < 16) or
+            (current_hour == 16 and current_minute == 0)
+    ):
+        # If currently within market hours, calculate next run time for the next update
+        next_run_time = current_time + timedelta(minutes=(30 - current_minute % 30))
+    elif current_weekday == 6:  # If it's Sunday, set the next run time to Monday
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    elif current_weekday == 4:  # If it's Friday, set the next run time to Monday or the end of Friday market hours
+        if current_hour >= 16:  # If it's after market hours on Friday, set the next run time to Monday
+            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
+        else:  # If it's before market hours on Friday, set the next run time to the end of Friday market hours
+            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
+    else:  # If it's outside market hours
+        print("This program only runs from 9:00 AM to 4:00 PM, Monday through Friday.")
+
+        # Calculate the next run time for the start of the next market day
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
     return next_run_time
 
