@@ -9,7 +9,7 @@ The only thing that a personal can control is the fact of buying at the lowest p
 ( The Billionaire Stock Market Strategy is that there is no guarantee that the stock will sell at a higher price, and so you can only control the action of buying at the lowest price possible. ) 
 
 ***************************************************************************************
-This is my Original, Most Successful Advanced Stock Market Trading Robot that I brought back from September 2023 since it was even more profitable 
+This is my Original, Most Successful Advanced Stock Market Trading Robot that I brought back from the season of Autumn in 2023 since it was even more profitable 
 with its "Billionaire buy at low price strategy."  
 
 ***************************************************************************************
