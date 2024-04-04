@@ -64,26 +64,12 @@ def calculate_next_run_time():
     current_weekday = current_time.weekday()
 
     # Calculate the next run time based on the current time
-    if (
-            0 <= current_weekday <= 4 and
-            (current_hour == 9 and current_minute >= 0) or
-            (9 < current_hour < 16) or
-            (current_hour == 16 and current_minute == 0)
-    ):
-        # If currently within market hours, calculate next run time for the next update
-        next_run_time = current_time + timedelta(minutes=(30 - current_minute % 30))
-    elif current_weekday == 6:  # If it's Sunday, set the next run time to Monday
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    elif current_weekday == 4:  # If it's Friday, set the next run time to Monday or the end of Friday market hours
-        if current_hour >= 16:  # If it's after market hours on Friday, set the next run time to Monday
-            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
-        else:  # If it's before market hours on Friday, set the next run time to the end of Friday market hours
-            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
-    elif 0 <= current_weekday <= 3:  # If it's Monday through Thursday
-        if current_hour >= 16:  # If it's after market hours, set the next run time to the end of the current market day
-            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
-        else:  # If it's before market hours, set the next run time to the start of the next market day
-            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    if current_weekday == 5:  # If it's Saturday, set the next run time to Monday
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=2)
+    elif current_weekday == 4 and current_hour >= 16:  # If it's Friday night, set the next run time to Monday
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
+    else:  # Otherwise, run every 60 seconds
+        next_run_time = current_time + timedelta(seconds=60)
 
     return next_run_time
 
@@ -131,8 +117,9 @@ if __name__ == "__main__":
                 next_run_time = calculate_next_run_time()
                 print(f"Next run time: {next_run_time.strftime('%I:%M:%S %p | %m-%d-%Y')} (Eastern Time)")
 
-            # Sleep for 30 seconds before the next update
-            time.sleep(30)
+                # Sleep until the next run time
+                time.sleep((next_run_time - datetime.now(et)).total_seconds())
+
         except Exception as e:
             print(f"Error in the main loop: {e}")
             print("Restarting the script in 1 minute...")
