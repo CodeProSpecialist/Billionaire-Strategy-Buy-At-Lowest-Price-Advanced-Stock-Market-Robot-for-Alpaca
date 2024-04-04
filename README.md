@@ -86,6 +86,12 @@ python3 performance-stock-list-writer.py
 
 OR:
 
+python3 auto-copy-stock-list-writer.py 
+
+( note: the auto copy stock list writer only does what is in the name. It only copies the list of stocks without checking their performance ) 
+
+OR:
+
 python3 new-performance-stock-list-writer.py
 
 The performance-stock-list-writer.py python program will make sure that only successful stocks are purchased by the Advanced Stock Market Trading Robot.
