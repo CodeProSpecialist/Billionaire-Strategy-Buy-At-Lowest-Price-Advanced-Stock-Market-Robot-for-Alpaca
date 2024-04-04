@@ -72,15 +72,18 @@ def calculate_next_run_time():
     ):
         # If currently within market hours, calculate next run time for the next update
         next_run_time = current_time + timedelta(minutes=(30 - current_minute % 30))
-    else:
-        # If outside market hours, calculate next run time for the next market opening
-        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0)
-        if current_weekday == 4:  # If it's Friday, set the next run time to Monday
-            next_run_time += timedelta(days=3)
-        elif current_weekday == 5:  # If it's Saturday, set the next run time to Monday
-            next_run_time += timedelta(days=2)
-        else:  # If it's Sunday, set the next run time to Monday
-            next_run_time += timedelta(days=1)
+    elif current_weekday == 6:  # If it's Sunday, set the next run time to Monday
+        next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    elif current_weekday == 4:  # If it's Friday, set the next run time to Monday or the end of Friday market hours
+        if current_hour >= 16:  # If it's after market hours on Friday, set the next run time to Monday
+            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=3)
+        else:  # If it's before market hours on Friday, set the next run time to the end of Friday market hours
+            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
+    elif 0 <= current_weekday <= 3:  # If it's Monday through Thursday
+        if current_hour >= 16:  # If it's after market hours, set the next run time to the end of the current market day
+            next_run_time = current_time.replace(hour=16, minute=0, second=0, microsecond=0)
+        else:  # If it's before market hours, set the next run time to the start of the next market day
+            next_run_time = current_time.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
     return next_run_time
 
