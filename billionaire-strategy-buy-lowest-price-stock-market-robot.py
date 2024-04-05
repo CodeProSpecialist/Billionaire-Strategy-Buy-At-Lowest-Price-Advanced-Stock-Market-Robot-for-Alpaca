@@ -16,7 +16,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
 import warnings
 
-warnings.filterwarnings('ignore')     # comment out this line to display more error messages.
+#warnings.filterwarnings('ignore')     # comment out this line to display more error messages.
 
 # Load environment variables for Alpaca API
 APIKEYID = os.getenv('APCA_API_KEY_ID')
@@ -213,8 +213,14 @@ def remove_symbol_from_trade_list(symbol):
 
 def get_opening_price(symbol):
     stock_data = yf.Ticker(symbol)
-    # Fetch the stock data for today and get the opening price
-    return round(stock_data.history(period="1d")["Open"].iloc[0], 4)
+    try:
+        # Fetch the stock data for today and get the opening price
+        opening_price = round(stock_data.history(period="1d")["Open"].iloc[0], 4)
+        return opening_price
+    except IndexError:
+        # Handle the case where the stock data is not available
+        logging.error(f"Opening price not found for {symbol}.")
+        return None
 
 
 def get_current_price(symbol):
@@ -357,11 +363,12 @@ def update_bought_stocks_from_api():
             db_position.avg_price = avg_entry_price
 
             if POSITION_DATES_AS_YESTERDAY_OPTION and run_counter < 1:
-                db_position.purchase_date = yesterday
+                db_position.purchase_date = yesterday.strftime("%Y-%m-%d")  # Use the provided date format
         except NoResultFound:
             purchase_date = yesterday if POSITION_DATES_AS_YESTERDAY_OPTION and run_counter < 1 else datetime.today()
+            purchase_date_str = purchase_date.strftime("%Y-%m-%d")  # Convert datetime to string
             db_position = Position(symbol=symbol, quantity=position.qty, avg_price=avg_entry_price,
-                                   purchase_date=purchase_date)
+                                   purchase_date=purchase_date_str)  # Use the provided date format
             session.add(db_position)
 
         bought_stocks[symbol] = (avg_entry_price, db_position.purchase_date)
@@ -371,7 +378,6 @@ def update_bought_stocks_from_api():
 
     session.commit()
     return bought_stocks
-
 
 def sell_stocks(bought_stocks, buy_sell_lock):
     stocks_to_remove = []
