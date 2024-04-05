@@ -1,8 +1,9 @@
 import threading
 import logging
-import os, sys
 import csv
+import os, sys
 import time
+#import schedule
 from datetime import datetime, timedelta, date
 from datetime import time as time2
 import alpaca_trade_api as tradeapi
@@ -10,14 +11,15 @@ import pytz
 import talib
 import yfinance as yf
 import sqlalchemy
-from sqlalchemy import create_engine, Column, Integer, String, Float 
+from sqlalchemy import create_engine, Column, Integer, String, Float
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
-import warnings
 
-#warnings.filterwarnings('ignore')     # comment out this line to display more error messages.
+# import warnings     # comment out this line to utilize warnings.filterwarnings
+
+# warnings.filterwarnings('ignore')     # comment out this line to display more error messages.
 
 # Load environment variables for Alpaca API
 APIKEYID = os.getenv('APCA_API_KEY_ID')
@@ -43,7 +45,7 @@ DEBUG = False  # this robot works faster when this is False.
 
 # the below Permission variable will allow all owned position shares to sell today when True on the first run.
 # Default value POSITION_DATES_AS_YESTERDAY_OPTION = False
-POSITION_DATES_AS_YESTERDAY_OPTION = False     # keep this as False to not change the dates of owned stocks
+POSITION_DATES_AS_YESTERDAY_OPTION = False  # keep this as False to not change the dates of owned stocks
 
 # set the timezone to Eastern
 eastern = pytz.timezone('US/Eastern')
@@ -51,13 +53,29 @@ eastern = pytz.timezone('US/Eastern')
 # Dictionary to maintain previous prices and price increase and price decrease counts
 stock_data = {}
 
+# Dictionary to store previous prices for symbols
+previous_prices = {}
+
+end_time = 0  # Initialize end_time as a global variable
+
 # Define the API datetime format
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
 
 # the below variable was recommended by Artificial Intelligence
 buy_sell_lock = threading.Lock()
 
-logging.basicConfig(filename='log-file-of-buy-and-sell-signals.txt', level=logging.INFO)
+logging.basicConfig(filename='trading-bot-program-logging-messages.txt', level=logging.INFO)
+
+# Define the CSV file and fieldnames
+csv_filename = 'log-file-of-buy-and-sell-signals.csv'
+fieldnames = ['Date', 'Buy', 'Sell', 'Quantity', 'Symbol', 'Price Per Share']
+
+# Open the CSV file for writing and set up a CSV writer
+with open(csv_filename, mode='w', newline='') as csv_file:
+    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+
+    # Write the header row
+    csv_writer.writeheader()
 
 # Define the Database Models
 # Newer Data Base Model code below
@@ -91,17 +109,6 @@ session = Session()
 
 # Create tables if not exist
 Base.metadata.create_all(engine)
-
-# Define the CSV file and fieldnames
-csv_filename = 'log-file-of-buy-and-sell-signals.csv'
-fieldnames = ['Date', 'Buy', 'Sell', 'Quantity', 'Symbol', 'Price Per Share']
-
-# Open the CSV file for writing and set up a CSV writer
-with open(csv_filename, mode='w', newline='') as csv_file:
-    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-
-    # Write the header row
-    csv_writer.writeheader()
 
 def stop_if_stock_market_is_closed():
     # Check if the current time is within the stock market hours
@@ -145,6 +152,7 @@ def stop_if_stock_market_is_closed():
         time.sleep(60)  # Sleep for 1 minute and check again. Keep this under the p in print.
 
 
+
 def print_database_tables():
     if PRINT_DATABASE:
         positions = api.list_positions()
@@ -153,7 +161,7 @@ def print_database_tables():
         # Print TradeHistory table
         print("\nTrade History In This Robot's Database:")
         print("\n")
-        print("Stock | Buy or Sell | Quantity | Avg. Price | Purchase Date ")
+        print("Stock | Buy or Sell | Quantity | Avg. Price | Date ")
         print("\n")
 
         for record in session.query(TradeHistory).all():
@@ -164,13 +172,13 @@ def print_database_tables():
         print("\n")
         print("Positions in the Database To Sell 1 or More Days After the Date Shown:")
         print("\n")
-        print("Stock | Quantity | Avg. Price | Purchase Date or The 1st Day This Robot Began Working ")
+        print("Stock | Quantity | Avg. Price | Date or The 1st Day This Robot Began Working ")
         print("\n")
         for record in session.query(Position).all():
             symbol, quantity, avg_price, purchase_date = record.symbol, record.quantity, record.avg_price, record.purchase_date
 
             # Format purchase_date to show 0 digits after the decimal point
-            purchase_date_str = purchase_date.strftime("%Y-%m-%d %H:%M:%S")
+            purchase_date_str = purchase_date  # this is already correct string data format
 
             # Calculate percentage change if show_price_percentage_change is True
             if show_price_percentage_change:
@@ -224,19 +232,13 @@ def remove_symbol_from_trade_list(symbol):
 
 def get_opening_price(symbol):
     stock_data = yf.Ticker(symbol)
-    try:
-        # Fetch the stock data for today and get the opening price
-        opening_price = round(stock_data.history(period="1d")["Open"].iloc[0], 4)
-        return opening_price
-    except IndexError:
-        # Handle the case where the stock data is not available
-        logging.error(f"Opening price not found for {symbol}.")
-        return None
+    # Fetch the stock data for today and get the opening price
+    return round(stock_data.history(period="1d")["Open"].iloc[0], 4)
 
 
 def get_current_price(symbol):
     stock_data = yf.Ticker(symbol)
-    return round(stock_data.history(period="5d")["Close"].iloc[-1], 4)
+    return round(stock_data.history(period='1d')['Close'].iloc[0], 4)
 
 
 def get_atr_high_price(symbol):
@@ -268,6 +270,108 @@ def status_printer_sell_stocks():
     print(f"\rSell stocks function is working correctly right now. Checking stocks to sell.....", end='', flush=True)
     # After the loop, print a newline character to move to the next line with the print command below.
     print()  # keep this under the s in status_printer_sell_stocks()
+
+
+# Function to calculate MACD, RSI, and Volume
+def calculate_technical_indicators(symbol, lookback_days=90):
+    stock_data = yf.Ticker(symbol)
+    historical_data = stock_data.history(period=f'{lookback_days}d')
+
+    # Calculate MACD
+    short_window = 12
+    long_window = 26
+    signal_window = 9
+    historical_data['macd'], historical_data['signal'], _ = talib.MACD(historical_data['Close'],
+                                                                       fastperiod=short_window,
+                                                                       slowperiod=long_window,
+                                                                       signalperiod=signal_window)
+
+    # Calculate RSI
+    rsi_period = 14
+    historical_data['rsi'] = talib.RSI(historical_data['Close'], timeperiod=rsi_period)
+
+    # Calculate Volume
+    historical_data['volume'] = historical_data['Volume']
+
+    return historical_data
+
+
+# Function to print technical indicators
+def print_technical_indicators(symbol, historical_data):
+    print("")
+    print(f"\nTechnical Indicators for {symbol}:\n")
+    print(historical_data[['Close', 'macd', 'signal', 'rsi', 'volume']].tail())
+    print("")
+
+
+def calculate_cash_on_hand():
+    # Calculate the total cash on hand
+    cash_available = round(float(api.get_account().cash), 2)
+    return cash_available
+
+
+def calculate_total_symbols(stocks_to_buy):
+    # Calculate the total number of symbols in "stocks_to_buy"
+    total_symbols = len(stocks_to_buy)
+    return total_symbols
+
+
+def allocate_cash_equally(cash_available, total_symbols):
+    # Make the total quantity of stocks_to_buy as close to $600 as possible and buy no more than $600 per stock symbol
+    max_allocation_per_symbol = 600  # how much cash to spend per stock purchase
+    allocation_per_symbol = min(max_allocation_per_symbol, cash_available) / total_symbols
+    return allocation_per_symbol
+
+
+def get_previous_price(symbol):
+    # Check if the symbol has a previous price
+    if symbol in previous_prices:
+        return previous_prices[symbol]
+    else:
+        # If no previous price is available, fetch the current price and use it as the previous price
+        current_price = get_current_price(symbol)  # Fetch the current price
+        previous_prices[symbol] = current_price  # Set it as the previous price
+        print(
+            f"No previous price for {symbol} was found. Using the current price as the previous price: {current_price}")
+        return current_price
+
+
+# Function to update previous prices
+def update_previous_price(symbol, current_price):
+    previous_prices[symbol] = current_price
+
+
+def run_schedule():
+    while not end_time_reached():
+        schedule.run_pending()
+        time.sleep(1)
+
+
+def track_price_changes(symbol):
+    current_price = get_current_price(symbol)
+    previous_price = get_previous_price(symbol)
+
+    print("")
+    # Print the values of the technical indicators
+    print_technical_indicators(symbol, calculate_technical_indicators(symbol))
+    print("")
+
+    if current_price > previous_price:
+        price_changes[symbol]['increased'] += 1
+        print(f"{symbol} price just increased | current price: {current_price}")
+        time.sleep(2)
+    elif current_price < previous_price:
+        price_changes[symbol]['decreased'] += 1
+        print(f"{symbol} price just decreased | current price: {current_price}")
+        time.sleep(2)
+    else:
+        print(f"{symbol} price has not changed | current price: {current_price}")
+        time.sleep(2)
+    time.sleep(1)  # Wait 1 - 3 seconds per price check
+
+
+def end_time_reached():
+    return time.time() >= end_time
 
 
 def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
@@ -575,7 +679,9 @@ def load_positions_from_database():
     for position in positions:
         symbol = position.symbol
         avg_price = position.avg_price
-        purchase_date = position.purchase_date
+        initial_api_returned_purchase_date = position.purchase_date
+        # the purchase date below is changed to string data format
+        purchase_date = initial_api_returned_purchase_date.strftime("%Y-%m-%d")
         bought_stocks[symbol] = (avg_price, purchase_date)
     return bought_stocks
 
