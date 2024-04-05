@@ -232,8 +232,15 @@ def remove_symbol_from_trade_list(symbol):
 
 def get_opening_price(symbol):
     stock_data = yf.Ticker(symbol)
-    # Fetch the stock data for today and get the opening price
-    return round(stock_data.history(period="1d")["Open"].iloc[0], 4)
+    try:
+        # Fetch the stock data for today and get the opening price
+        opening_price = round(stock_data.history(period="1d")["Open"].iloc[0], 4)
+        return opening_price
+    except IndexError:
+        # Handle the case where the stock data is not available
+        logging.error(f"Opening price not found for {symbol}.")
+        return None
+
 
 
 def get_current_price(symbol):
