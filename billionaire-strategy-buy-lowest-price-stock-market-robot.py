@@ -31,6 +31,8 @@ api = tradeapi.REST(APIKEYID, APISECRETKEY, APIBASEURL)
 
 global stocks_to_buy, today_date, today_datetime, csv_writer, csv_filename, fieldnames, price_changes, end_time
 
+global current_price, today_date_str, qty
+
 # the below will print the list of stocks to buy and their prices when True.
 PRINT_STOCKS_TO_BUY = False  # keep this as False for the robot to work faster.
 
@@ -492,7 +494,6 @@ def update_bought_stocks_from_api():
     return bought_stocks
 
 def sell_stocks(bought_stocks, buy_sell_lock):
-    global current_price, today_date_str, qty
     stocks_to_remove = []
 
     # below time and date are only used in the logging file
