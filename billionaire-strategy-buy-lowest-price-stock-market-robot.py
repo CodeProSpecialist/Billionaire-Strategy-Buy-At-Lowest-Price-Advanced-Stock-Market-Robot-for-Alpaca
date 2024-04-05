@@ -3,7 +3,7 @@ import logging
 import csv
 import os, sys
 import time
-#import schedule
+import schedule
 from datetime import datetime, timedelta, date
 from datetime import time as time2
 import alpaca_trade_api as tradeapi

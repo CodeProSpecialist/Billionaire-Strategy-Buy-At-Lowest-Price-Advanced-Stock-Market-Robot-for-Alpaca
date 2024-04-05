@@ -19,12 +19,12 @@ then
 
     # Install Python packages
     echo "Installing Python packages..."
-    
-    sudo pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib
-    
+
+    sudo pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib schedule
+
 fi
 
-# Install TA-Lib dependencies  
+# Install TA-Lib dependencies
 echo "Installing TA-Lib dependencies ..."
 
 sudo apt-get install libatlas-base-dev gfortran -y
@@ -45,6 +45,6 @@ rm -r ta-lib
 rm ta-lib-0.4.0-src.tar.gz
 
 # making sure python3.11 can install packages by renaming EXTERNALLY-MANAGED to EXTERNALLY-MANAGED.old
-sudo mv /usr/lib/python3.11/EXTERNALLY-MANAGED /usr/lib/python3.11/EXTERNALLY-MANAGED.old  
+sudo mv /usr/lib/python3.11/EXTERNALLY-MANAGED /usr/lib/python3.11/EXTERNALLY-MANAGED.old
 
 echo "All done! You can now run your Python script."
