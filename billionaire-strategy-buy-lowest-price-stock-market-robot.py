@@ -416,14 +416,14 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
                 stocks_to_remove.append((symbol, current_price, today_date))
                 time.sleep(2)
 
-            time.sleep(1.7)
+            time.sleep(0.8)
 
         else:
             print(f"Failed to fetch opening price for {symbol}.")
             logging.error(f"Failed to fetch opening price for {symbol}.")
-        time.sleep(1.7)     # keep the t in time just under the "e" in else.
+        time.sleep(0.5)     # keep the t in time just under the "e" in else.
 
-    time.sleep(1.7)
+    time.sleep(0.8)
 
     try:
         with buy_sell_lock:
@@ -549,11 +549,11 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
                 time.sleep(2)  # keep this under the s in stocks
 
-            time.sleep(2)  # keep this under the i in if current_price. this stops after checking each stock price
-        time.sleep(1.7)
+            time.sleep(0.5)  # keep this under the i in if current_price. this stops after checking each stock price
+        time.sleep(0.5)
     # I might not need the extra sleep command below
     # keep the below time.sleep(1) below the f in "for symbol"
-    time.sleep(2)  # wait 1 - 3 seconds to not move too fast for the stock price data rate limit.
+    time.sleep(1)  # wait 1 - 3 seconds to not move too fast for the stock price data rate limit.
 
     try:  # keep this under the s in "sell stocks"
         with buy_sell_lock:
