@@ -1,6 +1,7 @@
 import threading
 import logging
 import os, sys
+import csv
 import time
 from datetime import datetime, timedelta, date
 from datetime import time as time2
@@ -26,7 +27,7 @@ APIBASEURL = os.getenv('APCA_API_BASE_URL')
 # Initialize the Alpaca API
 api = tradeapi.REST(APIKEYID, APISECRETKEY, APIBASEURL)
 
-global stocks_to_buy, today_date, today_datetime
+global stocks_to_buy, today_date, today_datetime, csv_writer, csv_filename, fieldnames, price_changes, end_time
 
 # the below will print the list of stocks to buy and their prices when True.
 PRINT_STOCKS_TO_BUY = False  # keep this as False for the robot to work faster.
@@ -91,6 +92,16 @@ session = Session()
 # Create tables if not exist
 Base.metadata.create_all(engine)
 
+# Define the CSV file and fieldnames
+csv_filename = 'log-file-of-buy-and-sell-signals.csv'
+fieldnames = ['Date', 'Buy', 'Sell', 'Quantity', 'Symbol', 'Price Per Share']
+
+# Open the CSV file for writing and set up a CSV writer
+with open(csv_filename, mode='w', newline='') as csv_file:
+    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+
+    # Write the header row
+    csv_writer.writeheader()
 
 def stop_if_stock_market_is_closed():
     # Check if the current time is within the stock market hours
@@ -263,68 +274,58 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     stocks_to_remove = []
 
     for symbol in stocks_to_buy:
-        # the below date is used in the database when buying stocks
         today_date = datetime.today().date()
-        current_price = get_current_price(symbol)
         opening_price = get_opening_price(symbol)
 
-        cash_available = round(float(api.get_account().cash), 2)
+        if opening_price is not None:  # Check if opening price is fetched successfully
+            current_price = get_current_price(symbol)
+            cash_available = round(float(api.get_account().cash), 2)
+            qty_of_one_stock = 1
+            now = datetime.now(pytz.timezone('US/Eastern'))
+            current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
+            total_cost_for_qty = current_price * qty_of_one_stock
+            factor_to_subtract = 0.9915
+            profit_buy_price_setting = opening_price * factor_to_subtract
 
-        qty_of_one_stock = 1  # change this number to buy more shares per stock symbol
+            status_printer_buy_stocks()
 
-        # below time and date are only used in the logging file
-        now = datetime.now(pytz.timezone('US/Eastern'))
-        current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
+            if (cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting):
+                api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
+                print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
+                logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
+                print("")
+                with open(csv_filename, mode='a', newline='') as csv_file:
+                    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                    csv_writer.writerow(
+                        {'Date': current_time_str, 'Buy': 'Buy', 'Quantity': qty_of_one_stock, 'Symbol': symbol,
+                         'Price Per Share': current_price})
 
-        # Calculate the total cost if we buy 'qty_of_one_stock' shares
-        total_cost_for_qty = current_price * qty_of_one_stock
+                stocks_to_remove.append((symbol, current_price, today_date))
+                time.sleep(2)
 
-        # Define the factor to subtract as a decimal
-        factor_to_subtract = 0.9915  # -0.85% decrease as a decimal is the number 0.9915
+            time.sleep(1.7)
 
-        # - 0.85% is often the top 15% - 17% of electricity stocks
-        # profit buy price setting: 0.85% subtracted from the opening price
-        profit_buy_price_setting = opening_price * factor_to_subtract
+        else:
+            print(f"Failed to fetch opening price for {symbol}.")
+            logging.error(f"Failed to fetch opening price for {symbol}.")
 
-        # Never calculate ATR for a buy price or sell price because it is too slow. 1 second per stock.
-        # Checking that we have enough money for the total_cost_for_qty.
-        # Checking if the current price is equal to or less than the atr low price to buy stock.
-        # It is also important to check that the current price is less than the opening price by 0.8%
-        # before buying the stock. This check is with the profit_buy_price_setting.
+    time.sleep(1.7)
 
-        status_printer_buy_stocks()
-
-        if (cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting):
-            api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
-            print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
-            logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
-            stocks_to_remove.append((symbol, current_price, today_date))  # Append tuple
-
-            time.sleep(2)  # keep this under the s in stocks
-
-        time.sleep(1.7)  # keep this under the i in if cash_available. this stops after checking each stock price
-
-    # I might not need the extra sleep command below
-    # keep the below time.sleep(1) below the f in "for symbol"
-    time.sleep(1.7)  # wait 1.7 seconds to not move too fast for the stock price data rate limit.
-
-    try:  # keep this under the b in "buy_stocks"
+    try:
         with buy_sell_lock:
             for symbol, price, date in stocks_to_remove:
                 bought_stocks[symbol] = (round(price, 4), date)
                 stocks_to_buy.remove(symbol)
                 remove_symbol_from_trade_list(symbol)
-                trade_history = TradeHistory(symbol=symbol, action='buy', quantity=qty_of_one_stock, price=price,
-                                             date=date)
+                trade_history = TradeHistory(symbol=symbol, action='buy', quantity=qty_of_one_stock, price=price, date=date)
                 session.add(trade_history)
-                db_position = Position(symbol=symbol, quantity=qty_of_one_stock, avg_price=price,
-                                       purchase_date=date)
+                db_position = Position(symbol=symbol, quantity=qty_of_one_stock, avg_price=price, purchase_date=date)
                 session.add(db_position)
 
             session.commit()
             refresh_after_buy()
-    except SQLAlchemyError as e:  # keep this under the t in "try"
-        session.rollback()  # Roll back the transaction on error
+    except SQLAlchemyError as e:
+        session.rollback()
         # Handle the error or log it
 
 
@@ -382,7 +383,7 @@ def update_bought_stocks_from_api():
 def sell_stocks(bought_stocks, buy_sell_lock):
     stocks_to_remove = []
 
-    #below time and date are only used in the logging file
+    # below time and date are only used in the logging file
     now = datetime.now(pytz.timezone('US/Eastern'))
     current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
@@ -395,30 +396,42 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
         # Convert today_date and bought_date to text strings
         today_date_str = extracted_date_from_today_date.strftime("%Y-%m-%d")
-        bought_date_str = purchase_date.strftime("%Y-%m-%d")
+        bought_date_str = purchase_date  # already string data format
 
         # the rest of the code goes by purchase_date instead of bought_date
 
-        #print("today_date_str = ", symbol, today_date_str)  # uncomment to print variable date to debug as same date
+        # print("today_date_str = ", symbol, today_date_str)  # uncomment to print variable date to debug as same date
 
-        #print("bought_date_str = ", symbol, bought_date_str)  # uncomment to print variable date to debug as same date
+        # print("bought_date_str = ", symbol, bought_date_str)  # uncomment to print variable date to debug as same date
 
         # Check if the stock was purchased at least one day before today
         # if bought_date_str < today_date_str:
 
-        if bought_date_str < today_date_str:    # keep under the "s" in "for symbol"
+        if bought_date_str < today_date_str:  # keep under the "s" in "for symbol"
             current_price = get_current_price(symbol)  # keep this under the "o" in "bought"
             position = api.get_position(symbol)  # keep this under the "o" in "bought"
             bought_price = float(position.avg_entry_price)  # keep this under the "o" in "bought"
 
+            # Check if there is an open sell order for the symbol
+            open_orders = api.list_orders(status='open', symbol=symbol)
+            if open_orders:
+                print(f"There is an open sell order for {symbol}. Skipping sell order.")
+                continue  # Skip to the next iteration if there's an open sell order
+
             # Never calculate ATR for a buy price or sell price because it is too slow. 1 second per stock.
-            # Sell stocks if the current price is more than 0.8% higher than the purchase price.
-            if current_price >= bought_price * 1.008:  # keep this under the "o" in "bought"
+            # Sell stocks if the current price is more than 0.1% higher than the purchase price.
+            if current_price >= bought_price * 1.001:  # keep this under the "o" in "bought"
                 qty = api.get_position(symbol).qty
                 api.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
-                print(f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
-                logging.info(f"{current_time_str} Sell {qty} shares of {symbol} based on a higher selling price. ")
-                stocks_to_remove.append(symbol)  # Append symbols to remove
+                print(
+                    f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
+                with open(csv_filename, mode='a', newline='') as csv_file:
+                    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                    csv_writer.writerow(
+                        {'Date': current_time_str, 'Sell': 'Sell', 'Quantity': qty, 'Symbol': symbol,
+                         'Price Per Share': current_price})
+
+                stocks_to_remove.append(symbol)  # Append symbols to remove. keep this under the w in with open
 
                 time.sleep(2)  # keep this under the s in stocks
 
@@ -426,14 +439,14 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
     # I might not need the extra sleep command below
     # keep the below time.sleep(1) below the f in "for symbol"
-    time.sleep(2)  # wait 1 second to not move too fast for the stock price data rate limit.
+    time.sleep(2)  # wait 1 - 3 seconds to not move too fast for the stock price data rate limit.
 
     try:  # keep this under the s in "sell stocks"
         with buy_sell_lock:
             for symbol in stocks_to_remove:
                 del bought_stocks[symbol]
                 trade_history = TradeHistory(symbol=symbol, action='sell', quantity=qty, price=current_price,
-                                             date=today_date)
+                                             date=today_date_str)  # Use the provided "string data" date format
                 session.add(trade_history)
                 session.query(Position).filter_by(symbol=symbol).delete()
             session.commit()
