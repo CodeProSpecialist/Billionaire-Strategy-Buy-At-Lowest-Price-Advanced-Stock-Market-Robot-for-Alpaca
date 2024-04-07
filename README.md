@@ -86,6 +86,10 @@ python3 performance-stock-list-writer.py
 
 OR:
 
+python3 ETF-fund-backtesting-for-profit-stock-list-writer.py
+
+OR:
+
 python3 auto-copy-stock-list-writer.py 
 
 ( note: the auto copy stock list writer only does what is in the name. It only copies the list of stocks without checking their performance ) 
