@@ -537,8 +537,8 @@ def sell_stocks(bought_stocks, buy_sell_lock):
             if current_price >= bought_price * 1.005:  # keep this under the "o" in "bought"
                 qty = api.get_position(symbol).qty
                 api.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
-                print(
-                    f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
+                print(f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
+                logging.info(f"{current_time_str} Sell {qty_of_one_stock} shares of {symbol}.")
                 with open(csv_filename, mode='a', newline='') as csv_file:
                     csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                     csv_writer.writerow(
