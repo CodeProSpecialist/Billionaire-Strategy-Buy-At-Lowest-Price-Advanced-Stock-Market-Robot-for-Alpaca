@@ -1,1 +1,62 @@
-
+ERROR:root:Error encountered: 'str' object has no attribute 'strftime'
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['P']: Exception('%ticker%: No price data found, symbol may be delisted (1m 2024-04-10 12:06:00.215040 -> 2024-04-10 12:12:00.215040)')
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['P']: Exception('%ticker%: No price data found, symbol may be delisted (1m 2024-04-10 12:08:27.123689 -> 2024-04-10 12:14:27.123689)')
+ERROR:root:Failed to fetch opening price for UPRO.
+ERROR:root:Failed to fetch opening price for VOO.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['Q']: Exception('%ticker%: No price data found, symbol may be delisted (1m 2024-04-10 12:08:29.388018 -> 2024-04-10 12:14:29.388018)')
+ERROR:root:Failed to fetch opening price for AGQ.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['N']: Exception('%ticker%: %ticker%o price data found, symbol may be delisted (1m 2024-04-10 12:08:31.050680 -> 2024-04-10 12:14:31.050680)')
+ERROR:root:Failed to fetch opening price for JNUG.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['N']: Exception('%ticker%: %ticker%o price data found, symbol may be delisted (1m 2024-04-10 12:08:32.587196 -> 2024-04-10 12:14:32.587196)')
+ERROR:root:Failed to fetch opening price for NUGT.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['P']: Exception('%ticker%: No price data found, symbol may be delisted (1m 2024-04-10 12:08:33.914670 -> 2024-04-10 12:14:33.914670)')
+ERROR:root:Failed to fetch opening price for COPX.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['I']: Exception('%ticker%: No timezone found, symbol may be delisted')
+ERROR:root:Failed to fetch opening price for SILJ.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['I']: Exception('%ticker%: No timezone found, symbol may be delisted')
+ERROR:root:Failed to fetch opening price for AUMI.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['N']: Exception('%ticker%: %ticker%o price data found, symbol may be delisted (1m 2024-04-10 12:08:38.952510 -> 2024-04-10 12:14:38.952510)')
+ERROR:root:Failed to fetch opening price for GDMN.
+ERROR:root:Failed to fetch opening price for GDXJ.
+ERROR:root:Failed to fetch opening price for SGDJ.
+ERROR:root:Failed to fetch opening price for GOLD.
+ERROR:root:Failed to fetch opening price for GDX.
+ERROR:root:Failed to fetch opening price for ASA.
+ERROR:root:Failed to fetch opening price for SGDM.
+ERROR:root:Failed to fetch opening price for GOAU.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['I']: Exception('%ticker%: No timezone found, symbol may be delisted')
+ERROR:root:Failed to fetch opening price for AGI.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['I']: Exception('%ticker%: No timezone found, symbol may be delisted')
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['N']: Exception('%ticker%: %ticker%o price data found, symbol may be delisted (1m 2024-04-10 12:08:49.706794 -> 2024-04-10 12:14:49.706794)')
+ERROR:root:Failed to fetch opening price for RING.
+ERROR:root:Failed to fetch opening price for SLV.
+ERROR:yfinance:
+1 Failed download:
+ERROR:yfinance:['I']: Exception('%ticker%: No timezone found, symbol may be delisted')
+ERROR:root:Failed to fetch opening price for SIVR.
+ERROR:root:Failed to fetch opening price for GOEX.
+ERROR:root:Failed to fetch opening price for UGL.

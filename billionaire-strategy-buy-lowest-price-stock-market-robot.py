@@ -445,18 +445,18 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
                 status_printer_buy_stocks()
 
                 if cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting:
-                api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
-                print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
-                logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
-                print("")
-                with open(csv_filename, mode='a', newline='') as csv_file:
-                    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                    csv_writer.writerow(
-                        {'Date': current_time_str, 'Buy': 'Buy', 'Quantity': qty_of_one_stock, 'Symbol': symbol,
-                         'Price Per Share': current_price})
+                    api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
+                    print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
+                    logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
+                    print("")
+                    with open(csv_filename, mode='a', newline='') as csv_file:
+                        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        csv_writer.writerow(
+                            {'Date': current_time_str, 'Buy': 'Buy', 'Quantity': qty_of_one_stock, 'Symbol': symbol,
+                             'Price Per Share': current_price})
 
-                stocks_to_remove.append((symbol, current_price, today_date))
-                time.sleep(2)
+                    stocks_to_remove.append((symbol, current_price, today_date))
+                    time.sleep(2)
 
             time.sleep(0.8)
 
