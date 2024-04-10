@@ -382,15 +382,44 @@ def track_price_changes(symbol):
 def end_time_reached():
     return time.time() >= end_time
 
-def get_last_price_within_past_5_minutes(symbol):
+
+def get_last_price_within_past_6_minutes(symbols):
+    results = {}
+
+    # Define the end time as the current time
     end_time = datetime.now()
-    start_time = end_time - timedelta(minutes=5)
-    data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
-    if not data.empty:
-        return data['Close'].iloc[-1]
-    else:
-        print(f"Price data for 5 minutes ago not available for {symbol}.")
-        return None
+
+    # Define the start time as 5 minutes ago
+    start_time = end_time - timedelta(minutes=6)
+
+    for symbol in symbols:
+        try:
+            # Download historical data with 1-minute interval
+            data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
+
+            # Check if data is available
+            if not data.empty:
+                # Iterate over the last 6 rows (past 5 minutes)
+                prices = []
+                for i in range(6):
+                    # Get the price at each minute
+                    prices.append(data['Close'].iloc[-(i + 1)])
+
+                # Check if the price decreased within the past 6 minutes
+                price_5_minutes_ago = prices[-1]
+                current_price = prices[0]
+
+                if current_price < price_5_minutes_ago:
+                    results[symbol] = True
+                else:
+                    results[symbol] = False
+            else:
+                results[symbol] = None
+        except Exception as e:
+            print(f"Error occurred for {symbol}: {e}")
+            results[symbol] = None
+
+    return results
 
 def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     stocks_to_remove = []
@@ -398,21 +427,24 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     for symbol in stocks_to_buy:
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-        last_price = get_last_price_within_past_5_minutes(symbol)
-        
-        if last_price is not None:  # Check if opening price is fetched successfully
+        last_price = get_last_price_within_past_6_minutes(symbol)
+
+        if last_price is not None and symbol in last_price:  # Check if last price is fetched successfully and symbol exists in the result
             current_price = get_current_price(symbol)
             cash_available = round(float(api.get_account().cash), 2)
             qty_of_one_stock = 1
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
-            total_cost_for_qty = current_price * qty_of_one_stock
-            factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
-            profit_buy_price_setting = last_price * factor_to_subtract 
 
-            status_printer_buy_stocks()
+            # Check if the symbol is in the results and if the last price decreased within the past 6 minutes
+            if symbol in last_price and last_price[symbol]:
+                total_cost_for_qty = current_price * qty_of_one_stock
+                factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
+                profit_buy_price_setting = last_price[symbol] * factor_to_subtract  # Access last price for the specific symbol
 
-            if (cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting):
+                status_printer_buy_stocks()
+
+                if cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting:
                 api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
                 print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
                 logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
@@ -429,7 +461,7 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
             time.sleep(0.8)
 
         else:
-            print(f"Failed to fetch opening price for {symbol}.")
+            print(f"Last price for {symbol} did not decrease within the past 6 minutes.")
             logging.error(f"Failed to fetch opening price for {symbol}.")
         time.sleep(0.5)     # keep the t in time just under the "e" in else.
 
