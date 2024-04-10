@@ -382,13 +382,15 @@ def track_price_changes(symbol):
 def end_time_reached():
     return time.time() >= end_time
 
-def get_last_price_within_past_6_minutes(symbol):
+def get_last_price_within_past_5_minutes(symbol):
     end_time = datetime.datetime.now()
-    start_time = end_time - datetime.timedelta(minutes=6)
+    start_time = end_time - datetime.timedelta(minutes=5)
     data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
     if not data.empty:
         return data['Close'].iloc[-1]
-    return None
+    else:
+        print(f"Price data for 5 minutes ago not available for {symbol}.")
+        return None
 
 def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     stocks_to_remove = []
@@ -396,7 +398,7 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     for symbol in stocks_to_buy:
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-        last_price = get_last_price_within_past_6_minutes(symbol)
+        last_price = get_last_price_within_past_5_minutes(symbol)
         
         if last_price is not None:  # Check if opening price is fetched successfully
             current_price = get_current_price(symbol)
