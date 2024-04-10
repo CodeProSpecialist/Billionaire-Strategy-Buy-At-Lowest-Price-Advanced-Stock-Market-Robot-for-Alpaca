@@ -382,14 +382,13 @@ def track_price_changes(symbol):
 def end_time_reached():
     return time.time() >= end_time
 
-
 def get_last_price_within_past_6_minutes(symbols):
     results = {}
 
     # Define the end time as the current time
     end_time = datetime.now()
 
-    # Define the start time as 5 minutes ago
+    # Define the start time as 6 minutes ago
     start_time = end_time - timedelta(minutes=6)
 
     for symbol in symbols:
@@ -399,15 +398,12 @@ def get_last_price_within_past_6_minutes(symbols):
 
             # Check if data is available
             if not data.empty:
-                # Iterate over the last 6 rows (past 5 minutes)
-                prices = []
-                for i in range(6):
-                    # Get the price at each minute
-                    prices.append(data['Close'].iloc[-(i + 1)])
+                # Extract the last 6 closing prices (past 5 minutes)
+                closing_prices = data['Close'].tail(6)
 
                 # Check if the price decreased within the past 6 minutes
-                price_5_minutes_ago = prices[-1]
-                current_price = prices[0]
+                current_price = closing_prices.iloc[-1]  # Current price
+                price_5_minutes_ago = closing_prices.iloc[0]  # Price 5 minutes ago
 
                 if current_price < price_5_minutes_ago:
                     results[symbol] = True
