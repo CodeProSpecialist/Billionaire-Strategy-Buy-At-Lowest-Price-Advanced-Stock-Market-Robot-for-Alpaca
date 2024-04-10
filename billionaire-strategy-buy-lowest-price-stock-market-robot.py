@@ -383,8 +383,8 @@ def end_time_reached():
     return time.time() >= end_time
 
 def get_last_price_within_past_5_minutes(symbol):
-    end_time = datetime.datetime.now()
-    start_time = end_time - datetime.timedelta(minutes=5)
+    end_time = datetime.now()
+    start_time = end_time - timedelta(minutes=5)
     data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
     if not data.empty:
         return data['Close'].iloc[-1]
