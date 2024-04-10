@@ -442,6 +442,7 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
 
                 if cash_available >= total_cost_for_qty and current_price <= profit_buy_price_setting:
                     api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
+                    print(f"Last price for {symbol} did decrease within the past 6 minutes.")
                     print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
                     logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
                     print("")
