@@ -397,7 +397,7 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
             total_cost_for_qty = current_price * qty_of_one_stock
-            factor_to_subtract = 0.99     # -1.00% decrease as a decimal is the number 0.99
+            factor_to_subtract = 0.9915  # -0.85% decrease as a decimal is the number 0.9915
             profit_buy_price_setting = opening_price * factor_to_subtract
 
             status_printer_buy_stocks()
