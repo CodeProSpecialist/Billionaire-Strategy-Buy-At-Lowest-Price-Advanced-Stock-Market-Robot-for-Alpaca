@@ -382,6 +382,13 @@ def track_price_changes(symbol):
 def end_time_reached():
     return time.time() >= end_time
 
+def get_last_price_within_past_6_minutes(symbol):
+    end_time = datetime.datetime.now()
+    start_time = end_time - datetime.timedelta(minutes=6)
+    data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
+    if not data.empty:
+        return data['Close'].iloc[-1]
+    return None
 
 def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     stocks_to_remove = []
@@ -389,16 +396,17 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
     for symbol in stocks_to_buy:
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-
-        if opening_price is not None:  # Check if opening price is fetched successfully
+        last_price = get_last_price_within_past_6_minutes(symbol)
+        
+        if last_price is not None:  # Check if opening price is fetched successfully
             current_price = get_current_price(symbol)
             cash_available = round(float(api.get_account().cash), 2)
             qty_of_one_stock = 1
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
             total_cost_for_qty = current_price * qty_of_one_stock
-            factor_to_subtract = 0.9915  # -0.85% decrease as a decimal is the number 0.9915
-            profit_buy_price_setting = opening_price * factor_to_subtract
+            factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
+            profit_buy_price_setting = last_price * factor_to_subtract 
 
             status_printer_buy_stocks()
 
