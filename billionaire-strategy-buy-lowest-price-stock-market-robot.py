@@ -396,6 +396,7 @@ def get_last_price_within_past_6_minutes(symbols):
     
     for symbol in symbols:
         try:
+            time.sleep(1)
             # Download historical data with 1-minute interval
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
             
