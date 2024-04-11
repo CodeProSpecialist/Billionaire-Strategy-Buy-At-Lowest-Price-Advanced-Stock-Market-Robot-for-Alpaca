@@ -432,11 +432,14 @@ def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-            # Check if the symbol is in the results and if the last price decreased within the past 6 minutes
+            # Check if the symbol is in the results and if the last price decreased by -0.5% within the past 6 minutes
             if symbol in last_price and last_price[symbol]:
                 total_cost_for_qty = current_price * qty_of_one_stock
                 factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
-                profit_buy_price_setting = last_price[symbol] * factor_to_subtract  # Access last price for the specific symbol
+                starting_price_to_compare = last_price[symbol] * factor_to_subtract  # Calculate the starting price to compare for a -0.5% decrease
+
+                # Print the prices being compared for each symbol
+                print(f"{symbol}: Current price = ${current_price}, Starting price to compare = ${starting_price_to_compare}")
 
                 status_printer_buy_stocks()
 
