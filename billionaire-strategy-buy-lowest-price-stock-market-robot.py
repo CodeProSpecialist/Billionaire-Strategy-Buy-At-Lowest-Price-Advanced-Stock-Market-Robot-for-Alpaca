@@ -395,7 +395,7 @@ def get_last_price_within_past_6_minutes(symbols):
 
             if not data.empty:
                 # Get the last closing price within the past 6 minutes
-                last_price = data['Close'].iloc[-1]
+                last_price = round(data['Close'].iloc[-1], 2)  # Round to 2 decimal places
                 results[symbol] = last_price
             else:
                 results[symbol] = None
@@ -405,16 +405,15 @@ def get_last_price_within_past_6_minutes(symbols):
 
     return results
 
-    
 def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     stocks_to_remove = []
 
     for symbol in symbols_to_buy:  # Ensure symbols_to_buy is a list
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-        last_price = get_last_price_within_past_6_minutes([symbol])  # Pass symbol as a list
+        last_prices = get_last_price_within_past_6_minutes([symbol])  # Pass symbol as a list
 
-        if last_price is not None and symbol in last_price:  # Check if last price is fetched successfully and symbol exists in the result
+        if last_prices is not None and symbol in last_prices:  # Check if last prices are fetched successfully and symbol exists in the result
             current_price = get_current_price(symbol)
             cash_available = round(float(api.get_account().cash), 2)
             qty_of_one_stock = 1
@@ -422,17 +421,19 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
             # Check if the symbol is in the results and if the last price decreased by -0.5% within the past 6 minutes
-            if symbol in last_price and last_price[symbol]:
+            if symbol in last_prices and last_prices[symbol]:
                 total_cost_for_qty = current_price * qty_of_one_stock
                 factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
-                starting_price_to_compare = last_price[symbol] * factor_to_subtract  # Calculate the starting price to compare for a -0.5% decrease
+                starting_price_to_compare = round(last_prices[symbol] * factor_to_subtract,
+                                                  2)  # Calculate the starting price to compare for a -0.5% decrease
 
                 # Print the prices being compared for each symbol
-                print(f"{symbol}: Current price = ${current_price}, Starting price to compare = ${starting_price_to_compare}")
+                print(
+                    f"{symbol}: Current price = ${current_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}")
 
                 status_printer_buy_stocks()
 
-                if cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare: 
+                if cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
                     api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
                     print(f"Last price for {symbol} did decrease within the past 6 minutes or the conditions to buy shares were favorable. ")
                     print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
