@@ -112,6 +112,7 @@ session = Session()
 # Create tables if not exist
 Base.metadata.create_all(engine)
 
+
 def stop_if_stock_market_is_closed():
     # Check if the current time is within the stock market hours
     # Set the stock market open and close times
@@ -130,7 +131,7 @@ def stop_if_stock_market_is_closed():
 
         print("\n")
         print('''
-                        
+
         *********************************************************************************
         ************ Billionaire Buying Strategy Version ********************************
         *********************************************************************************
@@ -152,7 +153,6 @@ def stop_if_stock_market_is_closed():
         print("\n")
         print("\n")
         time.sleep(60)  # Sleep for 1 minute and check again. Keep this under the p in print.
-
 
 
 def print_database_tables():
@@ -242,7 +242,6 @@ def get_opening_price(symbol):
         # Handle the case where the stock data is not available
         logging.error(f"Opening price not found for {symbol}.")
         return None
-
 
 
 def get_current_price(symbol):
@@ -382,19 +381,20 @@ def track_price_changes(symbol):
 def end_time_reached():
     return time.time() >= end_time
 
-def get_last_price_within_past_6_minutes(symbols):
+
+def get_last_price_within_past_5_minutes(symbols):
     results = {}
     eastern = pytz.timezone('US/Eastern')
     end_time = datetime.now(eastern)
-    start_time = end_time - timedelta(minutes=6)
+    start_time = end_time - timedelta(minutes=5)
 
     for symbol in symbols:
         try:
-            # Download historical data with 1-minute interval for the past 6 minutes
+            # Download historical data with 1-minute interval for the past 5 minutes
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
 
             if not data.empty:
-                # Get the last closing price within the past 6 minutes
+                # Get the last closing price within the past start_time number of minutes
                 last_price = round(data['Close'].iloc[-1], 2)  # Round to 2 decimal places
                 results[symbol] = last_price
             else:
@@ -405,13 +405,14 @@ def get_last_price_within_past_6_minutes(symbols):
 
     return results
 
+
 def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     stocks_to_remove = []
 
     for symbol in symbols_to_buy:  # Ensure symbols_to_buy is a list
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-        last_prices = get_last_price_within_past_6_minutes([symbol])  # Pass symbol as a list
+        last_prices = get_last_price_within_past_5_minutes([symbol])  # Pass symbol as a list
 
         if last_prices is not None and symbol in last_prices:  # Check if last prices are fetched successfully and symbol exists in the result
             current_price = get_current_price(symbol)
@@ -420,12 +421,12 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-            # Check if the symbol is in the results and if the last price decreased by -0.5% within the past 6 minutes
+            # Check if the symbol is in the results and if the last price decreased by -0.20% within the past 6 minutes
             if symbol in last_prices and last_prices[symbol]:
                 total_cost_for_qty = current_price * qty_of_one_stock
-                factor_to_subtract = 0.995  # -0.50% decrease as a decimal is the number 0.995
-                starting_price_to_compare = round(last_prices[symbol] * factor_to_subtract,
-                                                  2)  # Calculate the starting price to compare for a -0.5% decrease
+                factor_to_subtract = 0.998  # -0.20% decrease as a decimal is the number 0.998
+                # Calculate the starting price to compare for a -0.20% decrease
+                starting_price_to_compare = round(last_prices[symbol] * factor_to_subtract, 2)
 
                 # Print the prices being compared for each symbol
                 print(
@@ -434,8 +435,10 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 status_printer_buy_stocks()
 
                 if cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
-                    api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market', time_in_force='day')
-                    print(f"Last price for {symbol} did decrease within the past 6 minutes or the conditions to buy shares were favorable. ")
+                    api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market',
+                                     time_in_force='day')
+                    print(
+                        f"Last price for {symbol} did decrease within the past 6 minutes or the conditions to buy shares were favorable. ")
                     print(f" {current_time_str} , Bought {qty_of_one_stock} shares of {symbol} at {current_price}")
                     logging.info(f"{current_time_str} Buy {qty_of_one_stock} shares of {symbol}.")
                     print("")
@@ -451,9 +454,10 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             time.sleep(0.8)
 
         else:
-            print(f"Last price for {symbol} did not decrease within the past 6 minutes or the conditions to buy shares were not favorable. ")
+            print(
+                f"Last price for {symbol} did not decrease within the past 6 minutes or the conditions to buy shares were not favorable. ")
             logging.error(f"Failed to fetch opening price for {symbol}.")
-        time.sleep(0.5)     # keep the t in time just under the "e" in else.
+        time.sleep(0.5)  # keep the t in time just under the "e" in else.
 
     time.sleep(0.8)
 
@@ -463,7 +467,8 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 bought_stocks[symbol] = (round(price, 4), date)
                 stocks_to_buy.remove(symbol)
                 remove_symbol_from_trade_list(symbol)
-                trade_history = TradeHistory(symbol=symbol, action='buy', quantity=qty_of_one_stock, price=price, date=date)
+                trade_history = TradeHistory(symbol=symbol, action='buy', quantity=qty_of_one_stock, price=price,
+                                             date=date)
                 session.add(trade_history)
                 db_position = Position(symbol=symbol, quantity=qty_of_one_stock, avg_price=price, purchase_date=date)
                 session.add(db_position)
@@ -526,6 +531,7 @@ def update_bought_stocks_from_api():
     session.commit()
     return bought_stocks
 
+
 def sell_stocks(bought_stocks, buy_sell_lock):
     stocks_to_remove = []
 
@@ -553,6 +559,10 @@ def sell_stocks(bought_stocks, buy_sell_lock):
         # Check if the stock was purchased at least one day before today
         # if bought_date_str < today_date_str:
 
+        # Convert today_date and bought_date to datetime.date objects
+        today_date = extracted_date_from_today_date
+        bought_date = datetime.strptime(purchase_date, "%Y-%m-%d").date()
+
         if bought_date_str < today_date_str:  # keep under the "s" in "for symbol"
             current_price = get_current_price(symbol)  # keep this under the "o" in "bought"
             position = api.get_position(symbol)  # keep this under the "o" in "bought"
@@ -569,8 +579,9 @@ def sell_stocks(bought_stocks, buy_sell_lock):
             if current_price >= bought_price * 1.005:  # keep this under the "o" in "bought"
                 qty = api.get_position(symbol).qty
                 api.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
-                print(f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
-                logging.info(f"{current_time_str} Sell {qty} shares of {symbol} based on a higher selling price. ") 
+                print(
+                    f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
+                logging.info(f"{current_time_str} Sell {qty} shares of {symbol} based on a higher selling price. ")
                 with open(csv_filename, mode='a', newline='') as csv_file:
                     csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                     csv_writer.writerow(
