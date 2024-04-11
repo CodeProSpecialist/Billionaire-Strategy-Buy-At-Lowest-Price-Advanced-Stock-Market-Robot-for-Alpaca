@@ -384,53 +384,35 @@ def end_time_reached():
 
 def get_last_price_within_past_6_minutes(symbols):
     results = {}
-    
-    # Set the Eastern Time Zone
     eastern = pytz.timezone('US/Eastern')
-    
-    # Define the end time as the current time in Eastern Time
     end_time = datetime.now(eastern)
-    
-    # Define the start time as 6 minutes ago in Eastern Time
     start_time = end_time - timedelta(minutes=6)
-    
+
     for symbol in symbols:
         try:
-            time.sleep(1)
-            # Download historical data with 1-minute interval
+            # Download historical data with 1-minute interval for the past 6 minutes
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
-            
-            # Check if data is available
+
             if not data.empty:
-                # Extract the last 6 closing prices (past 5 minutes)
-                closing_prices = data['Close'].tail(6)
-                
-                # Print prices for each symbol
-                print(f"Prices for symbol {symbol}: {closing_prices.tolist()}")
-                
-                # Check if the price decreased within the past 6 minutes
-                current_price = closing_prices.iloc[-1]  # Current price
-                price_5_minutes_ago = closing_prices.iloc[0]  # Price 5 minutes ago
-                
-                if current_price < price_5_minutes_ago:
-                    results[symbol] = True
-                else:
-                    results[symbol] = False
+                # Get the last closing price within the past 6 minutes
+                last_price = data['Close'].iloc[-1]
+                results[symbol] = last_price
             else:
                 results[symbol] = None
         except Exception as e:
-            print(f"Error occurred for {symbol}: {e}")
+            print(f"Error occurred while fetching data for {symbol}: {e}")
             results[symbol] = None
-    
+
     return results
+
     
-def buy_stocks(bought_stocks, stocks_to_buy, buy_sell_lock):
+def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     stocks_to_remove = []
 
-    for symbol in stocks_to_buy:
+    for symbol in symbols_to_buy:  # Ensure symbols_to_buy is a list
         today_date = datetime.today().date()
         opening_price = get_opening_price(symbol)
-        last_price = get_last_price_within_past_6_minutes(symbol)
+        last_price = get_last_price_within_past_6_minutes([symbol])  # Pass symbol as a list
 
         if last_price is not None and symbol in last_price:  # Check if last price is fetched successfully and symbol exists in the result
             current_price = get_current_price(symbol)
