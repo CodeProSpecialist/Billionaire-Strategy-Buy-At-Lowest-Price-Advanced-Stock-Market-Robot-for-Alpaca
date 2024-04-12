@@ -561,7 +561,7 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
         # Convert today_date and bought_date to datetime.date objects
         today_date = extracted_date_from_today_date
-        bought_date = datetime.strptime(purchase_date, "%Y-%m-%d").date()
+        bought_date = datetime.strptime(purchase_date, "%Y-%m-%d")  # corrected line
 
         if bought_date_str < today_date_str:  # keep under the "s" in "for symbol"
             current_price = get_current_price(symbol)  # keep this under the "o" in "bought"
