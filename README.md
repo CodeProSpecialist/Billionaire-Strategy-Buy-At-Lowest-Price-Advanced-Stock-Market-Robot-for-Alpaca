@@ -4,8 +4,7 @@ This is the Billionaire Strategy for Buying Great Stocks at the Lowest Price bec
 
 Make sure to download the newest version of this robot because the newest code works better.
 I fixed the code bugs on 4-12-2024.
-( please be patient because I program in my spare time outside of my weekday job. I trade ETF funds with this robot, and I need it to work just as much for you as I need it to work for myself.  ) 
-
+ 
 I recommend this robot for the slowest stock market days like Monday and Tuesday. Then for more Bull Market days like Wednesday, Thursday, and Friday, the Bull Market Trading Robot is the best Robot for that type of Stock Market environment. 
 
     This buy low strategy was working to make a profit no matter how bad the stocks were moving. 
