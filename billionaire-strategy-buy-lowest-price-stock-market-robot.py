@@ -392,7 +392,7 @@ def get_last_price_within_past_5_minutes(symbols):
         try:
             # Download historical data with 1-minute interval for the past 5 minutes
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
-
+            time.sleep(1)
             if not data.empty:
                 # Get the last closing price within the past start_time number of minutes
                 last_price = round(data['Close'].iloc[-1], 2)  # Round to 2 decimal places
@@ -718,8 +718,8 @@ def main():
 
             # keep the below time.sleep(60) to 60 seconds because yfinance api
             # will stop the stock data feed for the reason of exceeding the rate limit or from this program being too fast.
-            print("Waiting 30 seconds before checking price data again........")
-            time.sleep(30)  # keep this under the i in if
+            print("Waiting 1 minute before checking price data again........")
+            time.sleep(60)  # keep this under the i in if
 
         except Exception as e:
             logging.error(f"Error encountered: {e}")
