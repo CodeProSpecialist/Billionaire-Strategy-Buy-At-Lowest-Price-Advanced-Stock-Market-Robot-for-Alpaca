@@ -487,6 +487,46 @@ def refresh_after_buy():
     bought_stocks = update_bought_stocks_from_api()
 
 
+# Function to place trailing stop sell order
+def place_trailing_stop_sell_order(symbol, qty_of_one_stock, current_price):
+    try:
+        stop_loss_percent = 1.0  # You can adjust this percentage based on your strategy
+        stop_loss_price = current_price * (1 - stop_loss_percent / 100)
+
+        stop_order = api.submit_order(
+            symbol=symbol,
+            qty=qty_of_one_stock,
+            side='sell',
+            type='trailing_stop',
+            trail_percent=stop_loss_percent,
+            time_in_force='gtc'  # 'gtc' or 'day'
+        )
+
+        print(f"Placed trailing stop sell order for {qty_of_one_stock} shares of {symbol} at {stop_loss_price}")
+
+        # Check if the symbol exists in bought_stocks before deleting
+        with buy_sell_lock:
+            if symbol in bought_stocks:
+                del bought_stocks[symbol]
+
+                # Delete the position from the database
+                db_position = session.query(Position).filter_by(symbol=symbol).first()
+
+                # Check if the position exists before attempting to delete
+                if db_position:
+                    # Delete the position
+                    session.delete(db_position)
+
+                    # Commit the changes
+                    session.commit()
+
+        return stop_order.id
+
+    except Exception as e:
+        print(f"Error placing trailing stop sell order for {symbol}: {str(e)}")
+        return None
+
+
 # Modify the update_bought_stocks_from_api function to use the correct purchase date
 def update_bought_stocks_from_api():
     positions = api.list_positions()
@@ -559,10 +599,6 @@ def sell_stocks(bought_stocks, buy_sell_lock):
         # Check if the stock was purchased at least one day before today
         # if bought_date_str < today_date_str:
 
-        # Convert today_date and bought_date to datetime.date objects
-        today_date = extracted_date_from_today_date
-        bought_date = datetime.strptime(purchase_date, "%Y-%m-%d")  # corrected line
-
         if bought_date_str < today_date_str:  # keep under the "s" in "for symbol"
             current_price = get_current_price(symbol)  # keep this under the "o" in "bought"
             position = api.get_position(symbol)  # keep this under the "o" in "bought"
@@ -581,7 +617,6 @@ def sell_stocks(bought_stocks, buy_sell_lock):
                 api.submit_order(symbol=symbol, qty=qty, side='sell', type='market', time_in_force='day')
                 print(
                     f" {current_time_str}, Sold {qty} shares of {symbol} at {current_price} based on a higher selling price. ")
-                logging.info(f"{current_time_str} Sell {qty} shares of {symbol} based on a higher selling price. ")
                 with open(csv_filename, mode='a', newline='') as csv_file:
                     csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                     csv_writer.writerow(
@@ -592,11 +627,11 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
                 time.sleep(2)  # keep this under the s in stocks
 
-            time.sleep(0.5)  # keep this under the i in if current_price. this stops after checking each stock price
-        time.sleep(0.5)
+            time.sleep(2)  # keep this under the i in if current_price. this stops after checking each stock price
+
     # I might not need the extra sleep command below
     # keep the below time.sleep(1) below the f in "for symbol"
-    time.sleep(1)  # wait 1 - 3 seconds to not move too fast for the stock price data rate limit.
+    time.sleep(2)  # wait 1 - 3 seconds to not move too fast for the stock price data rate limit.
 
     try:  # keep this under the s in "sell stocks"
         with buy_sell_lock:
@@ -617,6 +652,19 @@ def refresh_after_sell():
     global bought_stocks
     time.sleep(2)
     bought_stocks = update_bought_stocks_from_api()
+
+
+def load_positions_from_database():
+    positions = session.query(Position).all()
+    bought_stocks = {}
+    for position in positions:
+        symbol = position.symbol
+        avg_price = position.avg_price
+        initial_api_returned_purchase_date = position.purchase_date
+        # the purchase date below is changed to string data format
+        purchase_date = initial_api_returned_purchase_date.strftime("%Y-%m-%d")
+        bought_stocks[symbol] = (avg_price, purchase_date)
+    return bought_stocks
 
 
 def main():
