@@ -20,7 +20,7 @@ then
     # Install Python packages
     echo "Installing Python packages..."
 
-    sudo pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib schedule
+    pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib schedule
 
 fi
 
