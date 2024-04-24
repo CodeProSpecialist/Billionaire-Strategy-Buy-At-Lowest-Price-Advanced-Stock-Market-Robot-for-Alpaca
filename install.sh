@@ -53,4 +53,4 @@ echo "Your Python commands will be the Python commands that run with Anaconda's 
 echo "You can activate Anaconda by running 'conda activate' and then install anything else with pip3 ."
 
 # Inform the user about the virtual environment
-echo "Your Python commands in the directory named My-Python-Virtual-Environment-Packages will be the Python commands that run this installed virtual environment's Python programs."
+echo "Your Python commands in the directory for Anaconda will be the Python commands that run this installed virtual environment's Python programs."
