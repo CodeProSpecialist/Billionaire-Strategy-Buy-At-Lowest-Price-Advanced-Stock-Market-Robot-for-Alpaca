@@ -436,6 +436,8 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 status_printer_buy_stocks()
 
                 if cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
+                    # Convert symbol from BRK-B to BRK.B if necessary
+                    symbol = symbol.replace('-', '.')
                     api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market',
                                      time_in_force='day')
                     print(
