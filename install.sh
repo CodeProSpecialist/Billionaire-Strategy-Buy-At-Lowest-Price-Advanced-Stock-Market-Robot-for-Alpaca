@@ -18,17 +18,8 @@ then
     sudo apt install -y python3-pip
 fi
 
-# Create and activate virtual environment in the user's home directory
-HOME_VENV_PATH="$HOME/My-Python-Virtual-Environment-Packages"
-VENV_PATH="$HOME_VENV_PATH/venv"
-
-# Check if the virtual environment directory exists, if not, create it
-if [ ! -d "$VENV_PATH" ]; then
-    mkdir -p "$VENV_PATH"
-fi
-
-# Activate the virtual environment
-source "$VENV_PATH/bin/activate"
+# Update Python packages using Anaconda's pip (assuming Anaconda is already installed)
+conda activate
 
 # Install Python packages within the virtual environment
 pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib schedule
@@ -55,12 +46,8 @@ rm ta-lib-0.4.0-src.tar.gz
 # Deactivate the virtual environment
 deactivate
 
-echo "All done! You can now run your Python script."
+echo "All done! You can now run your Python script with Anaconda."
 
-# Inform the user about the virtual environment
-echo "Your Python commands in the directory named My-Python-Virtual-Environment-Packages will be the Python commands that run this installed virtual environment's Python programs."
-
-echo "just open the folder named My-Python-Virtual-Environment-Packages/venv/bin and run pip3 to install anything else with the command ./pip3 and then run python3 with the command ./python3  "
 
 # Inform the user about the virtual environment
 echo "Your Python commands in the directory named My-Python-Virtual-Environment-Packages will be the Python commands that run this installed virtual environment's Python programs."
