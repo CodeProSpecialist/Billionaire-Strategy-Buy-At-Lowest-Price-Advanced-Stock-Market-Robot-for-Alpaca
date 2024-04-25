@@ -18,7 +18,10 @@ then
     sudo apt install -y python3-pip
 fi
 
-# Update Python packages using Anaconda's pip (assuming Anaconda is already installed)
+# Initialize conda
+conda init bash
+
+# Activate Anaconda environment
 conda activate
 
 # Install Python packages within the virtual environment
