@@ -1,22 +1,53 @@
-#!/bin/bash
+#!/bin/sh
 
-echo "Starting setup..."
+# Update package list
+sudo apt update
 
-# Check if python3 is installed
-if ! command -v python3 &> /dev/null
-then
-    echo "Python3 could not be found. Attempting to install..."
-    sudo apt update
-    sudo apt install -y python3-all
+# Prompt the user
+echo "We need to remove the local Linux pip and pip3 before installing. "
+echo "( we are using Anaconda's pip3 to install Python3 packages.) "
+echo "Uninstall python-pip and python3-pip? (y/n)"
+read response
+
+# Check the response
+if [ "$response" = "y" ]; then
+  # Uninstall the packages as root
+  sudo apt purge python-pip python3-pip
+else
+  echo "Uninstallation cancelled"
+  exit 1
 fi
 
-# Check if pip3 is installed
-if ! command -v pip3 &> /dev/null
-then
-    echo "pip3 could not be found. Attempting to install..."
-    sudo apt update
-    sudo apt install -y python3-pip
-fi
+sudo apt update
+
+# Install required packages
+sudo apt install -y libhdf5-dev
+
+# Install TA-Lib dependencies
+echo "Installing TA-Lib dependencies ..."
+sudo apt-get install libatlas-base-dev gfortran -y
+
+# Download and install TA-Lib
+echo "Downloading TA-Lib..."
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+tar -xzvf ta-lib-0.4.0-src.tar.gz
+
+cd ta-lib/
+echo "Configuring TA-Lib..."
+./configure --prefix=/usr/local --build=x86_64-unknown-linux-gnu
+echo "Building TA-Lib..."
+sudo make -s ARCH=x86_64
+echo "Installing TA-Lib..."
+sudo make -s ARCH=x86_64 install
+
+# For Raspberry Pi 4 (aarch64):
+# ./configure --prefix=/usr/local --build=aarch64-unknown-linux-gnu
+# sudo make -s ARCH=aarch64
+# sudo make -s ARCH=aarch64 install
+
+cd ..
+sudo rm -r -f -I ta-lib
+rm ta-lib-0.4.0-src.tar.gz
 
 # Initialize conda
 conda init bash
@@ -26,28 +57,6 @@ conda activate
 
 # Install Python packages within the virtual environment
 pip3 install yfinance alpaca-trade-api sqlalchemy pytz ta-lib schedule
-
-# Install TA-Lib dependencies  
-echo "Installing TA-Lib dependencies ..."
-sudo apt-get install libatlas-base-dev gfortran -y
-
-# Download and install TA-Lib
-echo "Downloading TA-Lib..."
-wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-tar -xzvf ta-lib-0.4.0-src.tar.gz
-cd ta-lib/
-echo "Configuring TA-Lib..."
-./configure --prefix=/usr
-echo "Installing TA-Lib..."
-make
-sudo make install
-
-cd ..
-rm -r ta-lib
-rm ta-lib-0.4.0-src.tar.gz
-
-# Deactivate the virtual environment
-deactivate
 
 echo "All done! You can now run your Python script with Anaconda."
 
