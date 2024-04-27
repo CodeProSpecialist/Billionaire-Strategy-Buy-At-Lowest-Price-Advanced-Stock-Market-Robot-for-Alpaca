@@ -13,6 +13,12 @@ read response
 if [ "$response" = "y" ]; then
   # Uninstall the packages as root
   sudo apt purge python-pip python3-pip
+  sudo rm /usr/local/bin/pip
+  sudo rm /usr/local/bin/pip3
+  sudo rm /usr/local/bin/pip3*
+  rm ~/.local/bin/pip
+  rm ~/.local/bin/pip3
+  rm ~/.local/bin/pip3*
 else
   echo "Uninstallation cancelled"
   exit 1
