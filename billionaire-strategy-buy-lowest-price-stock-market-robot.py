@@ -414,8 +414,9 @@ def get_last_price_within_past_5_minutes(symbols):
 
 
 def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
-    global symbol, current_price, qty_of_one_stock
+    global symbol, current_price, qty_of_one_stock, buy_signal
     stocks_to_remove = []
+    buy_signal = 0
 
     for symbol in symbols_to_buy:  # Ensure symbols_to_buy is a list
         today_date = datetime.today().date()
@@ -443,6 +444,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 status_printer_buy_stocks()
 
                 if cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
+                    buy_signal = 1
                     # Convert symbol from BRK-B to BRK.B if necessary
                     symbol = symbol.replace('-', '.')
                     api.submit_order(symbol=symbol, qty=qty_of_one_stock, side='buy', type='market',
@@ -493,7 +495,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             day_trade_count = account_info.daytrade_count
 
             # keep the if day_trade_count below the "q" in qty_of_one_stock
-            if day_trade_count < 3:
+            if day_trade_count < 3 and buy_signal == 1:
                 print("")
                 print("Waiting 2 minutes before placing a trailing stop sell order.....")
                 print("")
@@ -525,7 +527,8 @@ def place_trailing_stop_sell_order(symbol, qty_of_one_stock, current_price):
     try:
         stop_loss_percent = 1.0  # You can adjust this percentage based on your strategy
         stop_loss_price = current_price * (1 - stop_loss_percent / 100)
-
+		# Convert symbol from BRK-B to BRK.B if necessary
+        symbol = symbol.replace('-', '.')
         stop_order = api.submit_order(
             symbol=symbol,
             qty=qty_of_one_stock,
@@ -709,7 +712,7 @@ def main():
 
     while True:  # keep this under the m in main
         try:
-            stop_if_stock_market_is_closed()  # comment this line to debug the Python code
+            #stop_if_stock_market_is_closed()  # comment this line to debug the Python code
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
