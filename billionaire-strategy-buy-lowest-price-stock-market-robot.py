@@ -233,6 +233,7 @@ def remove_symbol_from_trade_list(symbol):
 
 
 def get_opening_price(symbol):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     stock_data = yf.Ticker(symbol)
     try:
         # Fetch the stock data for today and get the opening price
@@ -245,23 +246,27 @@ def get_opening_price(symbol):
 
 
 def get_current_price(symbol):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     stock_data = yf.Ticker(symbol)
     return round(stock_data.history(period='1d')['Close'].iloc[0], 4)
 
 
 def get_atr_high_price(symbol):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     atr_value = get_average_true_range(symbol)
     current_price = get_current_price(symbol)
     return round(current_price + 0.40 * atr_value, 4)
 
 
 def get_atr_low_price(symbol):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     atr_value = get_average_true_range(symbol)
     current_price = get_current_price(symbol)
     return round(current_price - 0.10 * atr_value, 4)
 
 
 def get_average_true_range(symbol):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     ticker = yf.Ticker(symbol)
     data = ticker.history(period='30d')
     atr = talib.ATR(data['High'].values, data['Low'].values, data['Close'].values, timeperiod=22)
@@ -282,6 +287,7 @@ def status_printer_sell_stocks():
 
 # Function to calculate MACD, RSI, and Volume
 def calculate_technical_indicators(symbol, lookback_days=90):
+    symbol = symbol.replace('.', '-')  # Replace '.' with '-'
     stock_data = yf.Ticker(symbol)
     historical_data = stock_data.history(period=f'{lookback_days}d')
 
@@ -390,6 +396,7 @@ def get_last_price_within_past_5_minutes(symbols):
 
     for symbol in symbols:
         try:
+            symbol = symbol.replace('.', '-')  # Replace '.' with '-'
             # Download historical data with 1-minute interval for the past 5 minutes
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
             time.sleep(1)
