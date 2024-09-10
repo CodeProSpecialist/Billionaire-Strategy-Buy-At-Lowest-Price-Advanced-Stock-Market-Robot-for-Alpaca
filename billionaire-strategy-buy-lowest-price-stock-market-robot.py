@@ -467,7 +467,7 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
         try:
             symbol = symbol.replace('.', '-')  # Replace '.' with '-'
             # Download historical data with 1-minute interval for the past 5 minutes
-            data = yf.download(symbol, start=start_time, end=end_time, interval='1m')
+            data = yf.download(symbol, start=start_time, end=end_time, interval='1d')
             time.sleep(1)
             if not data.empty:
                 # Get the last closing price within the past start_time number of minutes
