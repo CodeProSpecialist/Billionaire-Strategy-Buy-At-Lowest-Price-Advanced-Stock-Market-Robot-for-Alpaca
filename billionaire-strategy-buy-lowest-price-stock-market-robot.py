@@ -457,13 +457,13 @@ def end_time_reached():
     return time.time() >= end_time
 
 
-def get_last_price_within_past_5_minutes(symbols):
+def get_last_price_within_past_5_minutes(symbols_to_buy):
     results = {}
     eastern = pytz.timezone('US/Eastern')
     end_time = datetime.now(eastern)
     start_time = end_time - timedelta(minutes=5)
 
-    for symbol in symbols:
+    for symbol in symbols_to_buy:
         try:
             symbol = symbol.replace('.', '-')  # Replace '.' with '-'
             # Download historical data with 1-minute interval for the past 5 minutes
