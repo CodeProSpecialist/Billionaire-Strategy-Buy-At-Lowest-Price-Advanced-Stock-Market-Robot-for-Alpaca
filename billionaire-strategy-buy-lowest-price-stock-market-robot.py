@@ -412,7 +412,7 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True)
             time.sleep(1)
             if not data.empty:
-                last_price = round(float(data['Close'].iloc[-1]), 2)  # Ensure float
+                last_price = round(float(data['Close'].iloc[-1].item()), 2)  # Use .item() to extract scalar value
                 results[symbol] = last_price
             else:
                 results[symbol] = None
