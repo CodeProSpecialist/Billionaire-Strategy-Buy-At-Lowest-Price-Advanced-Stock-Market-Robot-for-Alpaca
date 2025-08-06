@@ -214,59 +214,89 @@ def get_current_price(symbol):
     post_market_start = time2(16, 0)
     post_market_end = time2(20, 0)
     stock_data = yf.Ticker(symbol)
+    time.sleep(1.5)  # Add 1.5-second delay for yfinance lookup
     try:
         if pre_market_start <= now.time() < market_start:
             data = stock_data.history(start=now.strftime('%Y-%m-%d'), interval='1m', prepost=True)
+            time.sleep(1.5)  # Additional delay for this specific lookup
             if not data.empty:
                 data.index = data.index.tz_convert(eastern)
                 pre_market_data = data.between_time(pre_market_start, pre_market_end)
                 current_price = pre_market_data['Close'].iloc[-1] if not pre_market_data.empty else None
                 if current_price is None:
-                    logging.error("Pre-market: Current Price not found error.")
-                    print("Pre-market: Current Price not found error.")
+                    logging.error("Pre-market: Current Price not found, using last closing price.")
+                    print("Pre-market: Current Price not found, using last closing price.")
+                    last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                    time.sleep(1.5)  # Delay for last closing price lookup
+                    current_price = last_close
             else:
                 current_price = None
-                logging.error("Pre-market: Current Price not found error.")
-                print("Pre-market: Current Price not found error.")
+                logging.error("Pre-market: Current Price not found, using last closing price.")
+                print("Pre-market: Current Price not found, using last closing price.")
+                last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                time.sleep(1.5)  # Delay for last closing price lookup
+                current_price = last_close
         elif market_start <= now.time() < market_end:
             data = stock_data.history(period='1d', interval='1m')
+            time.sleep(1.5)  # Additional delay for this specific lookup
             if not data.empty:
                 data.index = data.index.tz_convert(eastern)
                 current_price = data['Close'].iloc[-1] if not data.empty else None
                 if current_price is None:
-                    logging.error("Market hours: Current Price not found error.")
-                    print("Market hours: Current Price not found error.")
+                    logging.error("Market hours: Current Price not found, using last closing price.")
+                    print("Market hours: Current Price not found, using last closing price.")
+                    last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                    time.sleep(1.5)  # Delay for last closing price lookup
+                    current_price = last_close
             else:
                 current_price = None
-                logging.error("Market hours: Current Price not found error.")
-                print("Market hours: Current Price not found error.")
+                logging.error("Market hours: Current Price not found, using last closing price.")
+                print("Market hours: Current Price not found, using last closing price.")
+                last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                time.sleep(1.5)  # Delay for last closing price lookup
+                current_price = last_close
         elif market_end <= now.time() < post_market_end:
             data = stock_data.history(start=now.strftime('%Y-%m-%d'), interval='1m', prepost=True)
+            time.sleep(1.5)  # Additional delay for this specific lookup
             if not data.empty:
                 data.index = data.index.tz_convert(eastern)
                 post_market_data = data.between_time(post_market_start, post_market_end)
                 current_price = post_market_data['Close'].iloc[-1] if not post_market_data.empty else None
                 if current_price is None:
-                    logging.error("Post-market: Current Price not found error.")
-                    print("Post-market: Current Price not found error.")
+                    logging.error("Post-market: Current Price not found, using last closing price.")
+                    print("Post-market: Current Price not found, using last closing price.")
+                    last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                    time.sleep(1.5)  # Delay for last closing price lookup
+                    current_price = last_close
             else:
                 current_price = None
-                logging.error("Post-market: Current Price not found error.")
-                print("Post-market: Current Price not found error.")
+                logging.error("Post-market: Current Price not found, using last closing price.")
+                print("Post-market: Current Price not found, using last closing price.")
+                last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+                time.sleep(1.5)  # Delay for last closing price lookup
+                current_price = last_close
         else:
             last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+            time.sleep(1.5)  # Delay for last closing price lookup
             current_price = last_close
     except Exception as e:
         logging.error(f"Error fetching current price for {symbol}: {e}")
         print(f"Error fetching current price for {symbol}: {e}")
-        current_price = None
+        try:
+            last_close = stock_data.history(period='1d')['Close'].iloc[-1]
+            time.sleep(1.5)  # Delay for last closing price lookup
+            current_price = last_close
+        except Exception as e2:
+            logging.error(f"Error fetching last closing price for {symbol}: {e2}")
+            print(f"Error fetching last closing price for {symbol}: {e2}")
+            current_price = None
 
     if current_price is None:
         error_message = f"Failed to retrieve current price for {symbol}."
         logging.error(error_message)
         print(error_message)
 
-    return round(current_price, 4) if current_price else None
+    return round(current_price, 4) if current_price is not None else None
 
 def get_atr_high_price(symbol):
     symbol = symbol.replace('.', '-')
