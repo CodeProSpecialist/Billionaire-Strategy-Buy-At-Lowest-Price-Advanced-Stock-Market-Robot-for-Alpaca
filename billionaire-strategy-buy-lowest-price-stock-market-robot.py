@@ -442,8 +442,21 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-            # Check if last price is valid (not None and not a Series)
+            # Check if last price is valid (not None)
             last_price = last_prices.get(symbol)
+            if last_price is None:
+                # Fallback to last closing price if no price within past 5 minutes
+                try:
+                    symbol_for_yf = symbol.replace('.', '-')
+                    stock_data = yf.Ticker(symbol_for_yf)
+                    last_price = round(stock_data.history(period='1d')['Close'].iloc[0], 4)
+                    print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
+                    logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
+                except Exception as e:
+                    print(f"Error fetching last closing price for {symbol}: {e}")
+                    logging.error(f"Error fetching last closing price for {symbol}: {e}")
+                    continue  # Skip to next symbol if no price is available
+
             if last_price is not None:
                 total_cost_for_qty = current_price * qty_of_one_stock
                 factor_to_subtract = 0.998
@@ -501,8 +514,8 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
 
                 time.sleep(0.8)
             else:
-                print(f"No valid last price for {symbol} within the past 5 minutes.")
-                logging.info(f"No valid last price for {symbol} within the past 5 minutes.")
+                print(f"No valid price data for {symbol}.")
+                logging.info(f"No valid price data for {symbol}.")
 
             time.sleep(0.5)
 
