@@ -194,7 +194,7 @@ def get_opening_price(symbol):
     symbol = symbol.replace('.', '-')
     stock_data = yf.Ticker(symbol)
     try:
-        opening_price = round(float(stock_data.history(period="1d")["Open"].iloc[0]), 4)  # Ensure float
+        opening_price = round(float(stock_data.history(period="1d")["Open"].iloc[0].item()), 4)  # Use .item()
         return opening_price
     except IndexError:
         logging.error(f"Opening price not found for {symbol}.")
@@ -220,18 +220,18 @@ def get_current_price(symbol):
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
                     pre_market_data = data.between_time(pre_market_start, pre_market_end)
-                    current_price = float(pre_market_data['Close'].iloc[-1]) if not pre_market_data.empty else None
+                    current_price = float(pre_market_data['Close'].iloc[-1].item()) if not pre_market_data.empty else None
                     if current_price is None:
                         logging.error("Pre-market: Current Price not found, using last closing price.")
                         print("Pre-market: Current Price not found, using last closing price.")
-                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                         time.sleep(1.5)  # Delay for last closing price lookup
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Pre-market: Current Price not found, using last closing price.")
                     print("Pre-market: Current Price not found, using last closing price.")
-                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                     time.sleep(1.5)  # Delay for last closing price lookup
                     current_price = last_close
             elif market_start <= now.time() < market_end:
@@ -239,18 +239,18 @@ def get_current_price(symbol):
                 time.sleep(1.5)  # Additional delay for this specific lookup
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
-                    current_price = float(data['Close'].iloc[-1]) if not data.empty else None
+                    current_price = float(data['Close'].iloc[-1].item()) if not data.empty else None
                     if current_price is None:
                         logging.error("Market hours: Current Price not found, using last closing price.")
                         print("Market hours: Current Price not found, using last closing price.")
-                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                         time.sleep(1.5)  # Delay for last closing price lookup
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Market hours: Current Price not found, using last closing price.")
                     print("Market hours: Current Price not found, using last closing price.")
-                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                     time.sleep(1.5)  # Delay for last closing price lookup
                     current_price = last_close
             elif market_end <= now.time() < post_market_end:
@@ -259,29 +259,29 @@ def get_current_price(symbol):
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
                     post_market_data = data.between_time(post_market_start, post_market_end)
-                    current_price = float(post_market_data['Close'].iloc[-1]) if not post_market_data.empty else None
+                    current_price = float(post_market_data['Close'].iloc[-1].item()) if not post_market_data.empty else None
                     if current_price is None:
                         logging.error("Post-market: Current Price not found, using last closing price.")
                         print("Post-market: Current Price not found, using last closing price.")
-                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                        last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                         time.sleep(1.5)  # Delay for last closing price lookup
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Post-market: Current Price not found, using last closing price.")
                     print("Post-market: Current Price not found, using last closing price.")
-                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                    last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                     time.sleep(1.5)  # Delay for last closing price lookup
                     current_price = last_close
             else:
-                last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                 time.sleep(1.5)  # Delay for last closing price lookup
                 current_price = last_close
         except Exception as e:
             logging.error(f"Error fetching current price for {symbol}: {e}")
             print(f"Error fetching current price for {symbol}: {e}")
             try:
-                last_close = float(stock_data.history(period='1d')['Close'].iloc[-1])
+                last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
                 time.sleep(1.5)  # Delay for last closing price lookup
                 current_price = last_close
             except Exception as e2:
@@ -412,7 +412,7 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True)
             time.sleep(1)
             if not data.empty:
-                last_price = round(float(data['Close'].iloc[-1].item()), 2)  # Use .item() to extract scalar value
+                last_price = round(float(data['Close'].iloc[-1].item()), 2)  # Use .item()
                 results[symbol] = last_price
             else:
                 results[symbol] = None
@@ -452,7 +452,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 try:
                     symbol_for_yf = symbol.replace('.', '-')
                     stock_data = yf.Ticker(symbol_for_yf)
-                    last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1]), 4)  # Ensure float
+                    last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)  # Use .item()
                     print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
                     logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
                 except Exception as e:
