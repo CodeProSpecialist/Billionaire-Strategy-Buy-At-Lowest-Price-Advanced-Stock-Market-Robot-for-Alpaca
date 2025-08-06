@@ -411,7 +411,7 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
     for symbol in symbols_to_buy:
         try:
             symbol = symbol.replace('.', '-')
-            data = yf.download(symbol, start=start_time, end=end_time, interval='1d')
+            data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True)
             time.sleep(1)
             if not data.empty:
                 last_price = round(data['Close'].iloc[-1], 2)
@@ -442,10 +442,12 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             now = datetime.now(pytz.timezone('US/Eastern'))
             current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-            if symbol in last_prices and last_prices[symbol]:
+            # Check if last price is valid (not None and not a Series)
+            last_price = last_prices.get(symbol)
+            if last_price is not None:
                 total_cost_for_qty = current_price * qty_of_one_stock
                 factor_to_subtract = 0.998
-                starting_price_to_compare = round(last_prices[symbol] * factor_to_subtract, 2)
+                starting_price_to_compare = round(last_price * factor_to_subtract, 2)
 
                 print(f"{symbol}: Current price = ${current_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}")
                 status_printer_buy_stocks()
@@ -498,6 +500,9 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                     logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash or unfavorable price movement.")
 
                 time.sleep(0.8)
+            else:
+                print(f"No valid last price for {symbol} within the past 5 minutes.")
+                logging.info(f"No valid last price for {symbol} within the past 5 minutes.")
 
             time.sleep(0.5)
 
