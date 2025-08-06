@@ -117,7 +117,7 @@ def stop_if_stock_market_is_closed():
         *********************************************************************************
             2023 Edition of the Advanced Stock Market Trading Robot, Version 2 
 
-                                                  https://github.com/CodeProSpecialist
+                                https://github.com/CodeProSpecialist
                        Featuring an An Accelerated Database Engine with Python 3 SQLAlchemy  
          ''')
         print(f'Current date & time (Eastern Time): {now.strftime("%A, %B %d, %Y, %I:%M:%S %p")}')
