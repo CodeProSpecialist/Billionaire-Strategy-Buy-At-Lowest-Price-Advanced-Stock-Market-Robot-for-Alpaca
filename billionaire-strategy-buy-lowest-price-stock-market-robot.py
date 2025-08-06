@@ -409,7 +409,7 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
     for symbol in symbols_to_buy:
         try:
             symbol = symbol.replace('.', '-')
-            data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True)
+            data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True, auto_adjust=False)
             time.sleep(1)
             if not data.empty:
                 last_price = round(float(data['Close'].iloc[-1].item()), 2)  # Use .item()
