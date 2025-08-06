@@ -116,11 +116,7 @@ def stop_if_stock_market_is_closed():
         ************ Billionaire Buying Strategy Version ********************************
         *********************************************************************************
             2023 Edition of the Advanced Stock Market Trading Robot, Version 2 
-           _____   __                   __             ____            __            __ 
-          / ___/  / /_  ____   _____   / /__          / __ \  ____    / /_   ____   / /_
-          \__ \  / __/ / __ \ / ___/  / //_/         / /_/ / / __ \  / __ \ / __ \ / __/
-         ___/ / / /_  / /_/ // /__   / ,<           / _, _/ / /_/ / / /_/ // /_/ // /_  
-        /____/  \__/  \____/ \___/  /_/|_|         /_/ |_|  \____/ /_.___/ \____/ \__/  
+
                                                   https://github.com/CodeProSpecialist
                        Featuring an An Accelerated Database Engine with Python 3 SQLAlchemy  
          ''')
