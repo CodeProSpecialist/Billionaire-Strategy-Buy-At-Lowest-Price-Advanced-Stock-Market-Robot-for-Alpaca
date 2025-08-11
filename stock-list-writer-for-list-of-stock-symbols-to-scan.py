@@ -36,7 +36,7 @@ CONFIG = {
     'output_file': 'list-of-stock-symbols-to-scan.txt',
     'counter_file': 's-and-p-500-list-printer-run-counter.txt',
     'log_file': 'stock_scanner.log',
-    'chart_top_n': 5,  # Number of top stocks to output
+    'chart_top_n': 30,  # Number of top stocks to output
 }
 
 # Set up logging
@@ -48,6 +48,15 @@ logging.basicConfig(
 
 # Set timezone
 eastern_timezone = pytz.timezone(CONFIG['timezone'])
+
+def fetch_sector(symbol):
+    """Fetch sector for a given stock symbol."""
+    try:
+        ticker = yf.Ticker(symbol)
+        return ticker.info.get('sector', 'Unknown')
+    except Exception as e:
+        logging.warning(f"Failed to fetch sector for {symbol}: {e}")
+        return 'Unknown'
 
 def batch_download_data(stocks, start_date, end_date, retries=3):
     """Batch download historical data for all stocks with fallback to smaller batches."""
@@ -338,7 +347,7 @@ def main():
         'TSCO', 'TT', 'TDG', 'TRV', 'TRMB', 'TFC', 'TYL', 'TSN', 'USB', 'UBER', 'UDR', 'ULTA', 'UNP', 'UAL', 'UPS', 'URI', 'UNH',
         'UHS', 'VLO', 'VTR', 'VLTO', 'VRSN', 'VRSK', 'VZ', 'VRTX', 'VTRS', 'VICI', 'V', 'VST', 'VMC', 'WRB', 'GWW', 'WAB', 'WBA',
         'WMT', 'DIS', 'WBD', 'WM', 'WAT', 'WEC', 'WFC', 'WELL', 'WST', 'WDC', 'WY', 'WMB', 'WTW', 'WYNN', 'XEL', 'XYL', 'YUM',
-        'ZBRA', 'ZBH', 'ZTS', 'XYZ', 'TTD', 'COIN', 'DASH', 'TKO', 'WSM', 'EXE', 'APO'
+        'ZBRA', 'ZBH', 'ZTS', 'TTD', 'COIN', 'DASH', 'TKO', 'WSM', 'EXE', 'APO'
     ]
 
     # Update run counter
@@ -372,9 +381,25 @@ def main():
                 if result and result['score'] > 0:
                     stock_scores.append(result)
 
-    # Sort and select top stocks
-    stock_scores.sort(key=lambda x: x['score'], reverse=True)
-    top_stocks = stock_scores[:CONFIG['chart_top_n']]
+    # Add sector information to scores
+    with concurrent.futures.ThreadPoolExecutor(max_workers=CONFIG['max_workers']) as executor:
+        sector_results = {executor.submit(fetch_sector, score['symbol']): score for score in stock_scores}
+        for future in concurrent.futures.as_completed(sector_results):
+            score = sector_results[future]
+            try:
+                score['sector'] = future.result()
+            except Exception as e:
+                logging.error(f"Error fetching sector for {score['symbol']}: {e}")
+                score['sector'] = 'Unknown'
+
+    # Sort and select top stocks with sector limit
+    df_scores = pd.DataFrame(stock_scores)
+    if not df_scores.empty:
+        # Group by sector, take top 5 per sector, then select top 30 overall
+        top_stocks = df_scores.groupby('sector').apply(lambda x: x.nlargest(5, 'score')).reset_index(drop=True)
+        top_stocks = top_stocks.nlargest(CONFIG['chart_top_n'], 'score').to_dict('records')
+    else:
+        top_stocks = []
 
     # Write symbols to file
     with open(CONFIG['output_file'], 'w') as f:
@@ -384,7 +409,7 @@ def main():
     # Generate and print table of top stocks
     if top_stocks:
         df = pd.DataFrame(top_stocks)
-        df = df[['symbol', 'score', 'price_increase', 'rsi', 'macd_bullish', 'volume_ratio', 'adx', 'obv_increasing', 'seasonal_return', 'best_month_match', 'lookback_years']]
+        df = df[['symbol', 'sector', 'score', 'price_increase', 'rsi', 'macd_bullish', 'volume_ratio', 'adx', 'obv_increasing', 'seasonal_return', 'best_month_match', 'lookback_years']]
         print("\nTop Performing Stocks Table:")
         print(df.to_string(index=False))
 
