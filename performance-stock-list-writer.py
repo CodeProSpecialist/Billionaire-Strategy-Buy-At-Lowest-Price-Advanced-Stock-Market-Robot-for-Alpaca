@@ -2,6 +2,8 @@ import time
 import pytz
 import yfinance as yf
 from datetime import datetime, timedelta
+import talib
+import numpy as np
 
 
 # Function to calculate percentage change for a given timeframe
@@ -58,16 +60,12 @@ while True:
 
                 # Calculate percentage changes for different timeframes
                 percentage_change_30_days = calculate_percentage_change(stock_data, "30d")
-                percentage_change_14_days = calculate_percentage_change(stock_data.tail(14), "14d")  # Adjust to 14 days
-                percentage_change_7_days = calculate_percentage_change(stock_data.tail(7), "7d")  # Adjust to 7 days
-                percentage_change_1_day = calculate_percentage_change(stock_data.tail(1), "1d")  # Adjust to 1 day
+                percentage_change_5_days = calculate_percentage_change(stock_data.tail(5), "5d")  # Adjust to 5 days
 
                 # Check if the stock meets the filtering criteria
                 if (
-                        percentage_change_30_days >= 7.0
-                        and percentage_change_14_days >= 5.0
-                        and percentage_change_7_days >= 2.7
-                        and percentage_change_1_day >= 0.05
+                        percentage_change_30_days > 0
+                        and percentage_change_5_days > 0
                 ):
                     filtered_stocks.append(symbol)
 
