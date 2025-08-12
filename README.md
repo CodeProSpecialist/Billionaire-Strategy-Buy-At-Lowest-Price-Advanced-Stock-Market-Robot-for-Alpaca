@@ -140,13 +140,13 @@ This is an Advanced buying and selling Python 3 Trading Robot to monitor a stock
 
 To install:
 
-You should be the root user when installing the Python software. ***** The below install commands are ONLY for a Desktop or Laptop Computer x86_64 type of install. ***** Open a command line terminal from this folder location and type:
+The below install commands are ONLY for a Desktop or Laptop Computer x86_64 type of install. ***** Open a command line terminal from this folder location and type:
 
 sh install.sh
 
 Do the following with a non-root user account: After placing your alpaca keys at the bottom of /home/nameofyourhomefolderhere/.bashrc you simply run the command in a command terminal like:
 
-You will need 2 command line terminals open to fully operate the Advanced Stock Market Trading Robot because one terminal window is the robot and the other terminal window is for updating the list of stocks to buy with the most successful energy or electric utility company stocks. To select different stocks to buy and allow up to 24 hours for the stocks list to update, edit the list of stocks in the file named "list-of-stock-symbols-to-scan.txt". To immediatly select different stock symbols to buy, then edit the list of stocks in the file named "electricity-or-utility-stocks-to-buy-list.txt" and also in the file named "list-of-stock-symbols-to-scan.txt".
+You will need 3 command line terminals open to fully operate the Advanced Stock Market Trading Robot because one terminal window is the robot and the other terminal window is for updating the list of stocks to buy with the most successful energy or electric utility company stocks. To select different stocks to buy and allow up to 24 hours for the stocks list to update, edit the list of stocks in the file named "list-of-stock-symbols-to-scan.txt". To immediatly select different stock symbols to buy, then edit the list of stocks in the file named "electricity-or-utility-stocks-to-buy-list.txt" and also in the file named "list-of-stock-symbols-to-scan.txt".
 
 python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 
