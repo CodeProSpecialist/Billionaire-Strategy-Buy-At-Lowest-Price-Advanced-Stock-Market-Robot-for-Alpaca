@@ -472,6 +472,12 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 print(f"{symbol}: Current price = ${current_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}")
                 status_printer_buy_stocks()
 
+                # Check if order amount is at least $1.00
+                if total_cost_for_qty < 1.00:
+                    print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, which is below the minimum of $1.00. Skipping buy order.")
+                    logging.info(f"{current_time_str} Did not buy {symbol} because order amount ${total_cost_for_qty:.2f} is below minimum of $1.00.")
+                    continue
+
                 # Check if enough cash is available to maintain $1.00 after purchase
                 if cash_available - total_cost_for_qty < 1.00:
                     print(f"Insufficient cash to buy {symbol}. Must maintain $1.00 minimum balance. Available: ${cash_available:.2f}, Required: ${total_cost_for_qty:.2f}")
