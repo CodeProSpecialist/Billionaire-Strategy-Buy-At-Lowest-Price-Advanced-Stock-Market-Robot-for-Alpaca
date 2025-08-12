@@ -154,10 +154,6 @@ open a second command line terminal and run the following command:
 
 python3 performance-stock-list-writer.py
 
-OR:
-
-python3 ETF-fund-backtesting-for-profit-stock-list-writer.py
-
 
 The performance-stock-list-writer.py python program will make sure that only successful stocks are purchased by the Advanced Stock Market Trading Robot.
 
