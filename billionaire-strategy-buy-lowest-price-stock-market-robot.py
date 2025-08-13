@@ -669,36 +669,50 @@ def update_bought_stocks_from_api():
         avg_entry_price = float(position.avg_entry_price)
         quantity = float(position.qty)  # Use float to handle fractional shares
 
-        # Fetch the most recent buy order date from Alpaca API
+        # Fetch the most recent filled buy order date using list_orders
         try:
-            activities = api.list_activities(
-                activity_types='FILL',
-                direction='desc',
-                limit=100,  # Adjust limit if needed
-                date=datetime.today().strftime('%Y-%m-%d')
-            )
-            buy_activity = None
-            for activity in activities:
-                if activity.symbol == symbol and activity.side == 'buy' and activity.transaction_time:
-                    buy_activity = activity
+            # Set initial end_time to current UTC time
+            end_time = datetime.now(pytz.UTC).isoformat()
+            order_list = []
+            CHUNK_SIZE = 500
+
+            while True:
+                order_chunk = api.list_orders(
+                    status='all',
+                    nested=False,
+                    direction='desc',
+                    until=end_time,
+                    limit=CHUNK_SIZE
+                )
+                if order_chunk:
+                    order_list.extend(order_chunk)
+                    end_time = order_chunk[-1].submitted_at.isoformat()
+                else:
                     break
 
-            if buy_activity:
-                purchase_date = datetime.strptime(buy_activity.transaction_time, '%Y-%m-%dT%H:%M:%S.%f%z').date()
+            # Find the most recent filled buy order for the symbol
+            buy_order = None
+            for order in order_list:
+                if order.symbol == symbol and order.side == 'buy' and order.status == 'filled' and order.submitted_at:
+                    buy_order = order
+                    break
+
+            if buy_order:
+                purchase_date = buy_order.submitted_at.date()
                 purchase_date_str = purchase_date.strftime("%Y-%m-%d")
                 print(f"Fetched purchase date for {symbol}: {purchase_date_str}")
                 logging.info(f"Fetched purchase date for {symbol}: {purchase_date_str}")
             else:
                 purchase_date = datetime.today().date()
                 purchase_date_str = purchase_date.strftime("%Y-%m-%d")
-                print(f"No buy activity found for {symbol}. Using today's date: {purchase_date_str}")
-                logging.info(f"No buy activity found for {symbol}. Using today's date: {purchase_date_str}")
+                print(f"No filled buy order found for {symbol}. Using today's date: {purchase_date_str}")
+                logging.info(f"No filled buy order found for {symbol}. Using today's date: {purchase_date_str}")
 
         except Exception as e:
             purchase_date = datetime.today().date()
             purchase_date_str = purchase_date.strftime("%Y-%m-%d")
-            print(f"Error fetching buy activity for {symbol}: {e}. Using today's date: {purchase_date_str}")
-            logging.error(f"Error fetching buy activity for {symbol}: {e}. Using today's date: {purchase_date_str}")
+            print(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
+            logging.error(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
 
         try:
             db_position = session.query(Position).filter_by(symbol=symbol).one()
