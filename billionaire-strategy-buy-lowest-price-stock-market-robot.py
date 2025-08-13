@@ -420,30 +420,21 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
 
     return results
 
-def get_most_recent_purchase_date():
+def get_most_recent_purchase_date(symbol):
     """
-    Retrieve the most recent buy order date for all owned positions using Alpaca API.
-    Returns a dictionary mapping symbols to their most recent purchase date (YYYY-MM-DD).
-    Uses today's date if no buy orders are found for a symbol.
+    Retrieve the most recent buy order date for a specific symbol using Alpaca API.
+    Returns the date (YYYY-MM-DD) of the most recent filled buy order, or today's date if none found.
+    Fetches all historical orders by paging backward from now.
     """
     try:
-        # Get all current positions
-        positions = api.list_positions()
-        symbols = [position.symbol for position in positions]
-        
-        if not symbols:
-            logging.info("No positions found in the account.")
-            return {}
-
-        # Initialize result dictionary
-        purchase_dates = {symbol: None for symbol in symbols}
-        
-        # Set initial end_time to 90 days prior for broader historical coverage
-        end_time = (datetime.now(pytz.UTC) - timedelta(days=90)).isoformat()
-        CHUNK_SIZE = 500
+        # Initialize for the specific symbol
+        purchase_date_str = None
         order_list = []
+        CHUNK_SIZE = 500
+        # Start from now to include recent orders and page backward
+        end_time = datetime.now(pytz.UTC).isoformat()
 
-        # Fetch all orders for the symbols in chunks
+        # Fetch all orders for the symbol in chunks, paging older
         while True:
             order_chunk = api.list_orders(
                 status='all',
@@ -451,51 +442,44 @@ def get_most_recent_purchase_date():
                 direction='desc',
                 until=end_time,
                 limit=CHUNK_SIZE,
-                symbols=symbols
+                symbols=[symbol]  # Fetch only for this symbol
             )
             if order_chunk:
                 order_list.extend(order_chunk)
+                # Update to fetch the next older chunk
                 end_time = (order_chunk[-1].submitted_at - timedelta(seconds=1)).isoformat()
             else:
                 break
 
-        # Process orders for each symbol
-        for symbol in symbols:
-            # Filter filled buy orders for the current symbol
-            buy_orders = [
-                order for order in order_list
-                if order.symbol == symbol and order.side == 'buy' and order.status == 'filled' and order.submitted_at
-            ]
+        # Filter filled buy orders for the symbol
+        buy_orders = [
+            order for order in order_list
+            if order.side == 'buy' and order.status == 'filled' and order.filled_at
+        ]
 
-            if buy_orders:
-                # Get the most recent buy order
-                most_recent_buy = max(buy_orders, key=lambda order: order.submitted_at)
-                purchase_date = most_recent_buy.submitted_at.date()
-                purchase_date_str = purchase_date.strftime("%Y-%m-%d")
-                purchase_dates[symbol] = purchase_date_str
-                print(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
-                logging.info(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
-            else:
-                # Use today's date if no buy orders are found
-                purchase_date = datetime.now(pytz.UTC).date()
-                purchase_date_str = purchase_date.strftime("%Y-%m-%d")
-                purchase_dates[symbol] = purchase_date_str
-                print(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}")
-                logging.info(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}")
-                logging.warning(f"No buy orders found for {symbol}. Orders fetched: {len([o for o in order_list if o.symbol == symbol])}. Verify Alpaca API data.")
+        if buy_orders:
+            # Get the most recent buy order by filled_at
+            most_recent_buy = max(buy_orders, key=lambda order: order.filled_at)
+            purchase_date = most_recent_buy.filled_at.date()
+            purchase_date_str = purchase_date.strftime("%Y-%m-%d")
+            print(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
+            logging.info(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
+        else:
+            # Use today's date if no buy orders found
+            purchase_date = datetime.now(pytz.UTC).date()
+            purchase_date_str = purchase_date.strftime("%Y-%m-%d")
+            print(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}")
+            logging.warning(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}. Orders fetched: {len(order_list)}. Verify Alpaca API data and account history.")
 
-        return purchase_dates
+        return purchase_date_str
 
     except Exception as e:
-        logging.error(f"Error fetching buy orders: {e}")
-        # Return today's date for all symbols in case of error
+        logging.error(f"Error fetching buy orders for {symbol}: {e}")
+        # Fallback to today's date on error
         purchase_date = datetime.now(pytz.UTC).date()
         purchase_date_str = purchase_date.strftime("%Y-%m-%d")
-        purchase_dates = {symbol: purchase_date_str for symbol in symbols} if symbols else {}
-        for symbol in purchase_dates:
-            print(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
-            logging.error(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
-        return purchase_dates
+        print(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
+        return purchase_date_str
 
 def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     global symbol, current_price, buy_signal
