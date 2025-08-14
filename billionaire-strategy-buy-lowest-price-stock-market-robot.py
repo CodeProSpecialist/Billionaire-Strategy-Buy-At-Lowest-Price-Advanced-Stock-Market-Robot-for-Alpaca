@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, date
 from datetime import time as time2
 import alpaca_trade_api as tradeapi
 import pytz
+import numpy as np
 import talib
 import yfinance as yf
 import sqlalchemy
@@ -332,6 +333,46 @@ def calculate_technical_indicators(symbol, lookback_days=90):
     historical_data['volume'] = historical_data['Volume']
     return historical_data
 
+def calculate_rsi(symbol, period=14, interval='5m'):
+    """
+    Calculate the RSI for a given symbol using intraday data.
+    
+    Args:
+        symbol (str): Stock symbol (e.g., 'AAPL').
+        period (int): Number of periods for RSI calculation (default: 14).
+        interval (str): Data interval, e.g., '5m' for 5-minute data (default: '5m').
+    
+    Returns:
+        float: Latest RSI value, or None if calculation fails.
+    """
+    try:
+        symbol = symbol.replace('.', '-')  # Adjust for yfinance compatibility
+        stock_data = yf.Ticker(symbol)
+        # Fetch intraday data for the current day, including pre/post-market
+        historical_data = stock_data.history(period='1d', interval=interval, prepost=True)
+        time.sleep(1.5)  # Respect yfinance rate limits
+        
+        if historical_data.empty or len(historical_data['Close']) < period:
+            logging.error(f"Insufficient data for RSI calculation for {symbol} with {interval} interval.")
+            print(f"Insufficient data for RSI calculation for {symbol}.")
+            return None
+        
+        # Calculate RSI using talib
+        rsi = talib.RSI(historical_data['Close'], timeperiod=period)
+        latest_rsi = rsi.iloc[-1] if not rsi.empty else None
+        
+        if latest_rsi is None or not np.isfinite(latest_rsi):
+            logging.error(f"Invalid RSI value for {symbol}: {latest_rsi}")
+            print(f"Invalid RSI value for {symbol}.")
+            return None
+        
+        return round(latest_rsi, 2)
+    
+    except Exception as e:
+        logging.error(f"Error calculating RSI for {symbol}: {e}")
+        print(f"Error calculating RSI for {symbol}: {e}")
+        return None
+
 def print_technical_indicators(symbol, historical_data):
     print("")
     print(f"\nTechnical Indicators for {symbol}:\n")
@@ -499,159 +540,156 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         today_date = datetime.today().date()
         today_date_str = today_date.strftime("%Y-%m-%d")
         last_prices = get_last_price_within_past_5_minutes([symbol])
+        current_price = get_current_price(symbol)
+        current_datetime = datetime.now(pytz.timezone('US/Eastern'))
+        current_time_str = current_datetime.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-        if last_prices is not None and symbol in last_prices:
-            current_price = get_current_price(symbol)
-            current_datetime = datetime.now(pytz.timezone('US/Eastern'))
-            current_time_str = current_datetime.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
+        # Calculate RSI using the new function
+        latest_rsi = calculate_rsi(symbol, period=14, interval='5m')
 
-            # Calculate RSI
-            historical_data = calculate_technical_indicators(symbol)
-            latest_rsi = historical_data['rsi'].iloc[-1] if not historical_data['rsi'].empty else None
+        # Check if last price is valid
+        last_price = last_prices.get(symbol)
+        if last_price is None:
+            try:
+                symbol_for_yf = symbol.replace('.', '-')
+                stock_data = yf.Ticker(symbol_for_yf)
+                last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)
+                print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
+                logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
+            except Exception as e:
+                print(f"Error fetching last closing price for {symbol}: {e}")
+                logging.error(f"Error fetching last closing price for {symbol}: {e}")
+                continue
 
-            # Check if last price is valid
-            last_price = last_prices.get(symbol)
-            if last_price is None:
+        if last_price is not None:
+            total_cost_for_qty = allocation_per_symbol
+            factor_to_subtract = 0.998
+            starting_price_to_compare = round(float(last_price) * factor_to_subtract, 2)
+
+            print(f"{symbol}: Current price = ${current_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}")
+            status_printer_buy_stocks()
+
+            # Check if order amount is at least $1.00
+            if total_cost_for_qty < 1.00:
+                print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, which is below the minimum of $1.00. Skipping buy order.")
+                logging.info(f"{current_time_str} Did not buy {symbol} because order amount ${total_cost_for_qty:.2f} is below minimum of $1.00.")
+                continue
+
+            # Check if enough cash is available to maintain $1.00 after purchase
+            if cash_available - total_cost_for_qty < 1.00:
+                print(f"Insufficient cash to buy {symbol}. Must maintain $1.00 minimum balance. Available: ${cash_available:.2f}, Required: ${total_cost_for_qty:.2f}")
+                logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash to maintain $1.00 minimum balance.")
+                continue
+
+            # Check buy conditions
+            if latest_rsi is not None and latest_rsi >= 70:
+                buy_signal = 1
+                api_symbol = symbol.replace('-', '.')
                 try:
-                    symbol_for_yf = symbol.replace('.', '-')
-                    stock_data = yf.Ticker(symbol_for_yf)
-                    last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)
-                    print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
-                    logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
+                    buy_order = api.submit_order(
+                        symbol=api_symbol,
+                        notional=total_cost_for_qty,  # Use notional for fractional shares
+                        side='buy',
+                        type='market',
+                        time_in_force='day'
+                    )
+                    # Estimate quantity based on notional and current price
+                    qty = round(total_cost_for_qty / current_price, 4)
+                    print(f"{current_time_str}, Bought {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to RSI >= 70")
+                    logging.info(f"{current_time_str} Buy {qty:.4f} shares of {api_symbol} due to RSI >= 70.")
+
+                    with open(csv_filename, mode='a', newline='') as csv_file:
+                        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        csv_writer.writerow({
+                            'Date': current_time_str,
+                            'Buy': 'Buy',
+                            'Quantity': qty,
+                            'Symbol': api_symbol,
+                            'Price Per Share': current_price
+                        })
+
+                    stocks_to_remove.append((api_symbol, current_price, today_date_str))
+
+                    order_filled = False
+                    for _ in range(30):
+                        order_status = api.get_order(buy_order.id)
+                        if order_status.status == 'filled':
+                            order_filled = True
+                            break
+                        time.sleep(2)
+
+                    if order_filled and api.get_account().daytrade_count < 3:
+                        stop_order_id = place_trailing_stop_sell_order(api_symbol, qty, current_price)
+                        if stop_order_id:
+                            print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
+                        else:
+                            print(f"Failed to place trailing stop sell order for {api_symbol}")
+                    else:
+                        print(f"Buy order not filled or day trade limit reached for {api_symbol}")
+
                 except Exception as e:
-                    print(f"Error fetching last closing price for {symbol}: {e}")
-                    logging.error(f"Error fetching last closing price for {symbol}: {e}")
-                    continue
+                    print(f"Error submitting buy order for {api_symbol}: {e}")
+                    logging.error(f"Error submitting buy order for {api_symbol}: {e}")
 
-            if last_price is not None:
-                total_cost_for_qty = allocation_per_symbol
-                factor_to_subtract = 0.998
-                starting_price_to_compare = round(float(last_price) * factor_to_subtract, 2)
+            elif cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
+                buy_signal = 1
+                api_symbol = symbol.replace('-', '.')
+                try:
+                    buy_order = api.submit_order(
+                        symbol=api_symbol,
+                        notional=total_cost_for_qty,  # Use notional for fractional shares
+                        side='buy',
+                        type='market',
+                        time_in_force='day'
+                    )
+                    # Estimate quantity based on notional and current price
+                    qty = round(total_cost_for_qty / current_price, 4)
+                    print(f"{current_time_str}, Bought {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to price drop")
+                    logging.info(f"{current_time_str} Buy {qty:.4f} shares of {api_symbol} due to price drop.")
 
-                print(f"{symbol}: Current price = ${current_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}")
-                status_printer_buy_stocks()
+                    with open(csv_filename, mode='a', newline='') as csv_file:
+                        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        csv_writer.writerow({
+                            'Date': current_time_str,
+                            'Buy': 'Buy',
+                            'Quantity': qty,
+                            'Symbol': api_symbol,
+                            'Price Per Share': current_price
+                        })
 
-                # Check if order amount is at least $1.00
-                if total_cost_for_qty < 1.00:
-                    print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, which is below the minimum of $1.00. Skipping buy order.")
-                    logging.info(f"{current_time_str} Did not buy {symbol} because order amount ${total_cost_for_qty:.2f} is below minimum of $1.00.")
-                    continue
+                    stocks_to_remove.append((api_symbol, current_price, today_date_str))
 
-                # Check if enough cash is available to maintain $1.00 after purchase
-                if cash_available - total_cost_for_qty < 1.00:
-                    print(f"Insufficient cash to buy {symbol}. Must maintain $1.00 minimum balance. Available: ${cash_available:.2f}, Required: ${total_cost_for_qty:.2f}")
-                    logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash to maintain $1.00 minimum balance.")
-                    continue
+                    order_filled = False
+                    for _ in range(30):
+                        order_status = api.get_order(buy_order.id)
+                        if order_status.status == 'filled':
+                            order_filled = True
+                            break
+                        time.sleep(2)
 
-                # Check RSI condition for immediate buy
-                if latest_rsi is not None and latest_rsi >= 65:
-                    buy_signal = 1
-                    api_symbol = symbol.replace('-', '.')
-                    try:
-                        buy_order = api.submit_order(
-                            symbol=api_symbol,
-                            notional=total_cost_for_qty,  # Use notional for fractional shares
-                            side='buy',
-                            type='market',
-                            time_in_force='day'
-                        )
-                        # Estimate quantity based on notional and current price
-                        qty = round(total_cost_for_qty / current_price, 4)
-                        print(f"{current_time_str}, Bought {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to RSI >= 65")
-                        logging.info(f"{current_time_str} Buy {qty:.4f} shares of {api_symbol} due to RSI >= 65.")
-
-                        with open(csv_filename, mode='a', newline='') as csv_file:
-                            csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                            csv_writer.writerow({
-                                'Date': current_time_str,
-                                'Buy': 'Buy',
-                                'Quantity': qty,
-                                'Symbol': api_symbol,
-                                'Price Per Share': current_price
-                            })
-
-                        stocks_to_remove.append((api_symbol, current_price, today_date_str))
-
-                        order_filled = False
-                        for _ in range(30):
-                            order_status = api.get_order(buy_order.id)
-                            if order_status.status == 'filled':
-                                order_filled = True
-                                break
-                            time.sleep(2)
-
-                        if order_filled and api.get_account().daytrade_count < 3:
-                            stop_order_id = place_trailing_stop_sell_order(api_symbol, qty, current_price)
-                            if stop_order_id:
-                                print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
-                            else:
-                                print(f"Failed to place trailing stop sell order for {api_symbol}")
+                    if order_filled and api.get_account().daytrade_count < 3:
+                        stop_order_id = place_trailing_stop_sell_order(api_symbol, qty, current_price)
+                        if stop_order_id:
+                            print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
                         else:
-                            print(f"Buy order not filled or day trade limit reached for {api_symbol}")
+                            print(f"Failed to place trailing stop sell order for {api_symbol}")
+                    else:
+                        print(f"Buy order not filled or day trade limit reached for {api_symbol}")
 
-                    except Exception as e:
-                        print(f"Error submitting buy order for {api_symbol}: {e}")
-                        logging.error(f"Error submitting buy order for {api_symbol}: {e}")
+                except Exception as e:
+                    print(f"Error submitting buy order for {api_symbol}: {e}")
+                    logging.error(f"Error submitting buy order for {api_symbol}: {e}")
 
-                elif cash_available >= total_cost_for_qty and current_price <= starting_price_to_compare:
-                    buy_signal = 1
-                    api_symbol = symbol.replace('-', '.')
-                    try:
-                        buy_order = api.submit_order(
-                            symbol=api_symbol,
-                            notional=total_cost_for_qty,  # Use notional for fractional shares
-                            side='buy',
-                            type='market',
-                            time_in_force='day'
-                        )
-                        # Estimate quantity based on notional and current price
-                        qty = round(total_cost_for_qty / current_price, 4)
-                        print(f"{current_time_str}, Bought {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f})")
-                        logging.info(f"{current_time_str} Buy {qty:.4f} shares of {api_symbol}.")
-
-                        with open(csv_filename, mode='a', newline='') as csv_file:
-                            csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                            csv_writer.writerow({
-                                'Date': current_time_str,
-                                'Buy': 'Buy',
-                                'Quantity': qty,
-                                'Symbol': api_symbol,
-                                'Price Per Share': current_price
-                            })
-
-                        stocks_to_remove.append((api_symbol, current_price, today_date_str))
-
-                        order_filled = False
-                        for _ in range(30):
-                            order_status = api.get_order(buy_order.id)
-                            if order_status.status == 'filled':
-                                order_filled = True
-                                break
-                            time.sleep(2)
-
-                        if order_filled and api.get_account().daytrade_count < 3:
-                            stop_order_id = place_trailing_stop_sell_order(api_symbol, qty, current_price)
-                            if stop_order_id:
-                                print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
-                            else:
-                                print(f"Failed to place trailing stop sell order for {api_symbol}")
-                        else:
-                            print(f"Buy order not filled or day trade limit reached for {api_symbol}")
-
-                    except Exception as e:
-                        print(f"Error submitting buy order for {api_symbol}: {e}")
-                        logging.error(f"Error submitting buy order for {api_symbol}: {e}")
-
-                else:
-                    print(f"Last price for {symbol} did not decrease within the past 6 minutes or conditions not met.")
-                    logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash or unfavorable price.")
-
-                time.sleep(0.8)
             else:
-                print(f"No valid price data for {symbol}.")
-                logging.info(f"No valid price data for {symbol}.")
+                print(f"{symbol}: Conditions not met. RSI = {latest_rsi:.2f} (required >= 70), Current price = {current_price:.2f} (required <= {starting_price_to_compare:.2f})")
+                logging.info(f"{current_time_str} Did not buy {symbol} due to RSI = {latest_rsi:.2f} or price not <= {starting_price_to_compare:.2f}.")
 
-            time.sleep(0.5)
+            time.sleep(0.8)
+        else:
+            print(f"No valid price data for {symbol}.")
+            logging.info(f"No valid price data for {symbol}.")
+
+        time.sleep(0.5)
 
     try:
         with buy_sell_lock:
