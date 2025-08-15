@@ -571,13 +571,13 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         symbol_yf = symbol.replace('.', '-')
         stock_data = yf.Ticker(symbol_yf)
         historical_data = stock_data.history(period='5d', interval='5m', prepost=True)
-        if historical_data.empty:
-            print(f"No historical data for {symbol}. Skipping.")
-            logging.info(f"No historical data for {symbol}.")
+        if historical_data.empty or len(historical_data) < 3:  # Require at least 3 candles for patterns
+            print(f"Insufficient historical data for {symbol} (rows: {len(historical_data)}). Skipping.")
+            logging.info(f"Insufficient historical data for {symbol} (rows: {len(historical_data)}).")
             continue
 
         # Calculate volume decrease: Recent 5-candle avg volume < prior 5-candle avg volume
-        recent_avg_volume = historical_data['Volume'].iloc[-5:].mean() if len(historical_data) >= 5 else current_volume
+        recent_avg_volume = historical_data['Volume'].iloc[-5:].mean() if len(historical_data) >= 5 else 0
         prior_avg_volume = historical_data['Volume'].iloc[-10:-5].mean() if len(historical_data) >= 10 else recent_avg_volume
         volume_decrease = recent_avg_volume < prior_avg_volume if len(historical_data) >= 10 else False
         current_volume = historical_data['Volume'].iloc[-1]
@@ -617,22 +617,27 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         for i in range(-1, -21, -1):  # Check last 20 candles (index -1 to -20)
             if len(historical_data) < abs(i):
                 continue
-            patterns = {
-                'Hammer': talib.CDLHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Bullish Engulfing': talib.CDLENGULFING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] > 0,
-                'Morning Star': talib.CDLMORNINGSTAR(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Piercing Line': talib.CDLPIERCING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Three White Soldiers': talib.CDL3WHITESOLDIERS(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Dragonfly Doji': talib.CDLDRAGONFLYDOJI(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Inverted Hammer': talib.CDLINVERTEDHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-                'Tweezer Bottom': talib.CDLMATCHINGLOW(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
-            }
-            current_detected = [name for name, detected in patterns.items() if detected]
-            if current_detected:
-                bullish_reversal_detected = True
-                detected_patterns = current_detected
-                reversal_candle_index = i
-                break  # Take the most recent reversal pattern
+            try:
+                patterns = {
+                    'Hammer': talib.CDLHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Bullish Engulfing': talib.CDLENGULFING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] > 0,
+                    'Morning Star': talib.CDLMORNINGSTAR(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Piercing Line': talib.CDLPIERCING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Three White Soldiers': talib.CDL3WHITESOLDIERS(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Dragonfly Doji': talib.CDLDRAGONFLYDOJI(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Inverted Hammer': talib.CDLINVERTEDHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                    'Tweezer Bottom': talib.CDLMATCHINGLOW(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                }
+                current_detected = [name for name, detected in patterns.items() if detected]
+                if current_detected:
+                    bullish_reversal_detected = True
+                    detected_patterns = current_detected
+                    reversal_candle_index = i
+                    break  # Take the most recent reversal pattern
+            except IndexError as e:
+                print(f"IndexError in candlestick pattern detection for {symbol}: {e}")
+                logging.error(f"IndexError in candlestick pattern detection for {symbol}: {e}")
+                continue
 
         # Check for price decline of at least 0.2% after the bullish reversal
         price_decline_after_reversal = False
