@@ -570,10 +570,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"No valid price data for {symbol}.")
             continue
 
-        # Calculate RSI
-        latest_rsi = calculate_rsi(symbol, period=14, interval='5m')
-
-        # Get historical data for volume and candlesticks (use intraday for better pattern detection)
+        # Get historical data for volume, RSI, and candlesticks (use intraday for better pattern detection)
         symbol_yf = symbol.replace('.', '-')
         stock_data = yf.Ticker(symbol_yf)
         historical_data = stock_data.history(period='5d', interval='5m', prepost=True)
@@ -588,11 +585,29 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         volume_decrease = recent_avg_volume < prior_avg_volume if len(historical_data) >= 10 else False
         current_volume = historical_data['Volume'].iloc[-1]
 
-        # Check price increase (for logging, not used in new condition)
+        # Calculate RSI decrease: Recent 5-candle avg RSI < prior 5-candle avg RSI
+        close_prices = historical_data['Close'].values
+        rsi_series = talib.RSI(close_prices, timeperiod=14)
+        rsi_decrease = False
+        if len(rsi_series) >= 10:
+            recent_rsi_values = rsi_series[-5:][~np.isnan(rsi_series[-5:])]
+            prior_rsi_values = rsi_series[-10:-5][~np.isnan(rsi_series[-10:-5])]
+            if len(recent_rsi_values) > 0 and len(prior_rsi_values) > 0:
+                recent_avg_rsi = np.mean(recent_rsi_values)
+                prior_avg_rsi = np.mean(prior_rsi_values)
+                rsi_decrease = recent_avg_rsi < prior_avg_rsi
+            else:
+                recent_avg_rsi = 0
+                prior_avg_rsi = 0
+        else:
+            recent_avg_rsi = 0
+            prior_avg_rsi = 0
+
+        # Check price increase (for logging, not used in buy condition)
         previous_price = get_previous_price(symbol)
         price_increase = current_price > previous_price * 1.005  # 0.5% increase
 
-        # Check price drop: Get last price within past 5 minutes (for logging, not used in new condition)
+        # Check price drop: Get last price within past 5 minutes
         last_prices = get_last_price_within_past_5_minutes([symbol])
         last_price = last_prices.get(symbol)
         if last_price is None:
@@ -605,10 +620,9 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 logging.error(f"Error fetching last closing price for {symbol}: {e}")
                 continue
 
-        # Calculate price drop threshold (for logging, not used in new condition)
-        factor_to_subtract = 0.998
-        starting_price_to_compare = round(float(last_price) * factor_to_subtract, 2)
-        price_drop = current_price <= starting_price_to_compare
+        # Calculate price drop: At least 0.2% decline from last price
+        price_decline_threshold = last_price * (1 - 0.002)  # 0.2% decline
+        price_decline = current_price <= price_decline_threshold
 
         # Detect any of the 8 bullish reversal candlestick patterns using TA-Lib over last 20 candles
         open_prices = historical_data['Open'].values
@@ -616,7 +630,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         low_prices = historical_data['Low'].values
         close_prices = historical_data['Close'].values
 
-        # Check for patterns in the last 20 candles (to allow time for price/RSI/volume to drop after reversal)
+        # Check for patterns in the last 20 candles
         bullish_reversal_detected = False
         reversal_candle_index = None
         detected_patterns = []
@@ -645,23 +659,19 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 logging.error(f"IndexError in candlestick pattern detection for {symbol}: {e}")
                 continue
 
-        # Check for price decline of at least 0.2% after the bullish reversal
-        price_decline_after_reversal = False
-        if bullish_reversal_detected and reversal_candle_index is not None:
-            reversal_candle_close = historical_data['Close'].iloc[reversal_candle_index]
-            price_decline_threshold = reversal_candle_close * (1 - 0.002)  # 0.2% decline
-            price_decline_after_reversal = current_price <= price_decline_threshold
-
-        # Log detected patterns, volume decrease, and price decline
+        # Log detected patterns, volume decrease, RSI decrease, and price decline
         if detected_patterns:
             print(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
             logging.info(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
-        if price_decline_after_reversal:
-            print(f"{symbol}: Price decline >= 0.2% detected after reversal (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
-            logging.info(f"{symbol}: Price decline >= 0.2% detected after reversal (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+        if price_decline:
+            print(f"{symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+            logging.info(f"{symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
         if volume_decrease:
             print(f"{symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
             logging.info(f"{symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
+        if rsi_decrease:
+            print(f"{symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
+            logging.info(f"{symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
 
         # Dynamic cash check with lock
         with buy_sell_lock:
@@ -681,7 +691,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             qty = round(total_cost_for_qty / current_price, 4) if current_price > 0 else 0
 
         # Log current conditions
-        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
+        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${price_decline_threshold:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Recent Avg RSI = {recent_avg_rsi:.2f}, Prior Avg RSI = {prior_avg_rsi:.2f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
         status_printer_buy_stocks()
 
         # Unified cash checks
@@ -694,11 +704,11 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash")
             continue
 
-        # Updated buy condition: RSI < 30, volume decrease, bullish reversal followed by price decline >= 0.2%
-        if (latest_rsi is not None and latest_rsi < 30 and volume_decrease and bullish_reversal_detected and price_decline_after_reversal):
+        # Updated buy condition: bullish reversal detected, volume decrease, RSI decrease, price decline >= 0.2%
+        if (bullish_reversal_detected and volume_decrease and rsi_decrease and price_decline):
             buy_signal = 1
             api_symbol = symbol.replace('-', '.')
-            reason = f"RSI < 30, volume decrease, bullish reversal ({', '.join(detected_patterns)}) followed by price decline >= 0.2%"
+            reason = f"bullish reversal ({', '.join(detected_patterns)}), volume decrease, RSI decrease, price decline >= 0.2%"
             try:
                 buy_order = api.submit_order(
                     symbol=api_symbol,
@@ -708,7 +718,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                     time_in_force='day'
                 )
                 print(f"{current_time_str}, Submitted buy order for {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
-                logging.info(f"{current_time_str} Submitted buy {qty:.4f} shares of {api_symbol} due to {reason}. RSI={latest_rsi:.2f}, Volume Decrease={volume_decrease}, Bullish Reversal={bullish_reversal_detected}, Price Decline >= 0.2%={price_decline_after_reversal}")
+                logging.info(f"{current_time_str} Submitted buy {qty:.4f} shares of {api_symbol} due to {reason}. RSI Decrease={rsi_decrease}, Volume Decrease={volume_decrease}, Bullish Reversal={bullish_reversal_detected}, Price Decline >= 0.2%={price_decline}")
 
                 order_filled = False
                 filled_qty = 0
@@ -754,8 +764,8 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 continue
 
         else:
-            print(f"{symbol}: Conditions not met. RSI = {latest_rsi:.2f} (required < 30), Volume Decrease = {volume_decrease}, Bullish Reversal = {bullish_reversal_detected}, Price Decline >= 0.2% = {price_decline_after_reversal}")
-            logging.info(f"{current_time_str} Did not buy {symbol} due to RSI = {latest_rsi:.2f}, Volume Decrease = {volume_decrease}, Bullish Reversal = {bullish_reversal_detected}, Price Decline >= 0.2% = {price_decline_after_reversal}")
+            print(f"{symbol}: Conditions not met. Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}")
+            logging.info(f"{current_time_str} Did not buy {symbol} due to Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}")
 
         # Update previous price
         update_previous_price(symbol, current_price)
