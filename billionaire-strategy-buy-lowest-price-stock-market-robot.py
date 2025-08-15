@@ -549,6 +549,12 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             continue
         valid_symbols.append(symbol)
 
+    # Check if there are valid symbols
+    if not valid_symbols:
+        print("No valid symbols to buy after filtering.")
+        logging.info("No valid symbols to buy after filtering.")
+        return
+
     # Process each valid symbol
     for symbol in valid_symbols:
         processed_symbols += 1
@@ -661,11 +667,21 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         with buy_sell_lock:
             cash_available = round(float(api.get_account().cash), 2)
             remaining_symbols = len(valid_symbols) - processed_symbols + 1
-            allocation_per_symbol = allocate_cash_equally(cash_available, remaining_symbols) if remaining_symbols > 0 else 0
-            total_cost_for_qty = allocation_per_symbol
+            # Calculate equal allocation across all valid symbols, ensuring $1.00 remains
+            max_possible_allocation = cash_available - 1.00  # Leave $1.00 in account
+            if max_possible_allocation < 1.00:
+                print(f"Insufficient cash for {symbol}. Available: ${cash_available:.2f}, Required: >= $2.00 to leave $1.00")
+                logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash: ${cash_available:.2f}")
+                continue
+            # Divide cash equally among all valid symbols (not just remaining ones)
+            allocation_per_symbol = max_possible_allocation / len(valid_symbols) if len(valid_symbols) > 0 else 0
+            max_allocation_per_symbol = 600.0  # Maximum dollar amount per symbol
+            total_cost_for_qty = min(allocation_per_symbol, max_allocation_per_symbol)
+            total_cost_for_qty = max(total_cost_for_qty, 1.00)  # Ensure minimum order size of $1.00
+            qty = round(total_cost_for_qty / current_price, 4) if current_price > 0 else 0
 
         # Log current conditions
-        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}")
+        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
         status_printer_buy_stocks()
 
         # Unified cash checks
@@ -691,7 +707,6 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                     type='market',
                     time_in_force='day'
                 )
-                qty = round(total_cost_for_qty / current_price, 4)
                 print(f"{current_time_str}, Submitted buy order for {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
                 logging.info(f"{current_time_str} Submitted buy {qty:.4f} shares of {api_symbol} due to {reason}. RSI={latest_rsi:.2f}, Volume Decrease={volume_decrease}, Bullish Reversal={bullish_reversal_detected}, Price Decline >= 0.2%={price_decline_after_reversal}")
 
