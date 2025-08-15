@@ -531,19 +531,34 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     stocks_to_remove = []
     buy_signal = 0
 
-    # Calculate cash allocation
-    cash_available = round(float(api.get_account().cash), 2)
-    total_symbols = len(symbols_to_buy)
-    allocation_per_symbol = allocate_cash_equally(cash_available, total_symbols) if total_symbols > 0 else 0
+    # Track processed symbols for dynamic allocation
+    processed_symbols = 0
+    valid_symbols = []
 
+    # First pass: Filter valid symbols to avoid wasting allocations
     for symbol in symbols_to_buy:
+        current_price = get_current_price(symbol)
+        if current_price is None:
+            print(f"No valid price data for {symbol}.")
+            logging.info(f"No valid price data for {symbol}.")
+            continue
+        historical_data = calculate_technical_indicators(symbol, lookback_days=5)
+        if historical_data.empty:
+            print(f"No historical data for {symbol}. Skipping.")
+            logging.info(f"No historical data for {symbol}.")
+            continue
+        valid_symbols.append(symbol)
+
+    # Process each valid symbol
+    for symbol in valid_symbols:
+        processed_symbols += 1
         today_date = datetime.today().date()
         today_date_str = today_date.strftime("%Y-%m-%d")
-        current_price = get_current_price(symbol)
         current_datetime = datetime.now(pytz.timezone('US/Eastern'))
         current_time_str = current_datetime.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
 
-        # Check if current price is valid
+        # Fetch current data
+        current_price = get_current_price(symbol)
         if current_price is None:
             print(f"No valid price data for {symbol}.")
             logging.info(f"No valid price data for {symbol}.")
@@ -552,29 +567,30 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         # Calculate RSI
         latest_rsi = calculate_rsi(symbol, period=14, interval='5m')
 
-        # Get historical data for volume (5 days, adjustable)
-        historical_data = calculate_technical_indicators(symbol, lookback_days=5)
+        # Get historical data for volume and candlesticks (use intraday for better pattern detection)
+        symbol_yf = symbol.replace('.', '-')
+        stock_data = yf.Ticker(symbol_yf)
+        historical_data = stock_data.history(period='5d', interval='5m', prepost=True)
         if historical_data.empty:
             print(f"No historical data for {symbol}. Skipping.")
             logging.info(f"No historical data for {symbol}.")
             continue
 
-        # Calculate volume increase: Current volume > 10% above 5-period average
-        current_volume = historical_data['volume'].iloc[-1]
-        avg_volume = historical_data['volume'].iloc[-5:].mean() if len(historical_data) >= 5 else current_volume
-        volume_increase = current_volume > avg_volume * 1.1  # 10% above average
+        # Calculate volume decrease: Recent 5-candle avg volume < prior 5-candle avg volume
+        recent_avg_volume = historical_data['Volume'].iloc[-5:].mean() if len(historical_data) >= 5 else current_volume
+        prior_avg_volume = historical_data['Volume'].iloc[-10:-5].mean() if len(historical_data) >= 10 else recent_avg_volume
+        volume_decrease = recent_avg_volume < prior_avg_volume if len(historical_data) >= 10 else False
+        current_volume = historical_data['Volume'].iloc[-1]
 
-        # Check price increase: Current price > previous price by 0.5%
+        # Check price increase (for logging, not used in new condition)
         previous_price = get_previous_price(symbol)
         price_increase = current_price > previous_price * 1.005  # 0.5% increase
 
-        # Check price drop: Get last price within past 5 minutes
+        # Check price drop: Get last price within past 5 minutes (for logging, not used in new condition)
         last_prices = get_last_price_within_past_5_minutes([symbol])
         last_price = last_prices.get(symbol)
         if last_price is None:
             try:
-                symbol_for_yf = symbol.replace('.', '-')
-                stock_data = yf.Ticker(symbol_for_yf)
                 last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)
                 print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
                 logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
@@ -583,84 +599,145 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 logging.error(f"Error fetching last closing price for {symbol}: {e}")
                 continue
 
-        # Calculate price drop threshold (0.2% below last price)
+        # Calculate price drop threshold (for logging, not used in new condition)
         factor_to_subtract = 0.998
         starting_price_to_compare = round(float(last_price) * factor_to_subtract, 2)
         price_drop = current_price <= starting_price_to_compare
 
+        # Detect any of the 8 bullish reversal candlestick patterns using TA-Lib over last 20 candles
+        open_prices = historical_data['Open'].values
+        high_prices = historical_data['High'].values
+        low_prices = historical_data['Low'].values
+        close_prices = historical_data['Close'].values
+
+        # Check for patterns in the last 20 candles (to allow time for price/RSI/volume to drop after reversal)
+        bullish_reversal_detected = False
+        reversal_candle_index = None
+        detected_patterns = []
+        for i in range(-1, -21, -1):  # Check last 20 candles (index -1 to -20)
+            if len(historical_data) < abs(i):
+                continue
+            patterns = {
+                'Hammer': talib.CDLHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Bullish Engulfing': talib.CDLENGULFING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] > 0,
+                'Morning Star': talib.CDLMORNINGSTAR(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Piercing Line': talib.CDLPIERCING(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Three White Soldiers': talib.CDL3WHITESOLDIERS(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Dragonfly Doji': talib.CDLDRAGONFLYDOJI(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Inverted Hammer': talib.CDLINVERTEDHAMMER(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+                'Tweezer Bottom': talib.CDLMATCHINGLOW(open_prices[:i+1], high_prices[:i+1], low_prices[:i+1], close_prices[:i+1])[i] != 0,
+            }
+            current_detected = [name for name, detected in patterns.items() if detected]
+            if current_detected:
+                bullish_reversal_detected = True
+                detected_patterns = current_detected
+                reversal_candle_index = i
+                break  # Take the most recent reversal pattern
+
+        # Check for price decline of at least 0.2% after the bullish reversal
+        price_decline_after_reversal = False
+        if bullish_reversal_detected and reversal_candle_index is not None:
+            reversal_candle_close = historical_data['Close'].iloc[reversal_candle_index]
+            price_decline_threshold = reversal_candle_close * (1 - 0.002)  # 0.2% decline
+            price_decline_after_reversal = current_price <= price_decline_threshold
+
+        # Log detected patterns, volume decrease, and price decline
+        if detected_patterns:
+            print(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
+            logging.info(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
+        if price_decline_after_reversal:
+            print(f"{symbol}: Price decline >= 0.2% detected after reversal (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+            logging.info(f"{symbol}: Price decline >= 0.2% detected after reversal (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+        if volume_decrease:
+            print(f"{symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
+            logging.info(f"{symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
+
+        # Dynamic cash check with lock
+        with buy_sell_lock:
+            cash_available = round(float(api.get_account().cash), 2)
+            remaining_symbols = len(valid_symbols) - processed_symbols + 1
+            allocation_per_symbol = allocate_cash_equally(cash_available, remaining_symbols) if remaining_symbols > 0 else 0
+            total_cost_for_qty = allocation_per_symbol
+
         # Log current conditions
-        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}, Volume = {current_volume:.0f}, Avg Volume = {avg_volume:.0f}")
+        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${starting_price_to_compare:.2f}, RSI = {latest_rsi:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}")
         status_printer_buy_stocks()
 
-        # Check if order amount is at least $1.00
-        total_cost_for_qty = allocation_per_symbol
+        # Unified cash checks
         if total_cost_for_qty < 1.00:
-            print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, which is below the minimum of $1.00. Skipping buy order.")
-            logging.info(f"{current_time_str} Did not buy {symbol} because order amount ${total_cost_for_qty:.2f} is below minimum of $1.00.")
+            print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, below minimum $1.00")
+            logging.info(f"{current_time_str} Did not buy {symbol} due to order amount below $1.00")
+            continue
+        if cash_available < total_cost_for_qty + 1.00:
+            print(f"Insufficient cash for {symbol}. Available: ${cash_available:.2f}, Required: ${total_cost_for_qty:.2f} + $1.00 minimum")
+            logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash")
             continue
 
-        # Check if enough cash is available to maintain $1.00 after purchase
-        if cash_available - total_cost_for_qty < 1.00:
-            print(f"Insufficient cash to buy {symbol}. Must maintain $1.00 minimum balance. Available: ${cash_available:.2f}, Required: ${total_cost_for_qty:.2f}")
-            logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash to maintain $1.00 minimum balance.")
-            continue
-
-        # Check buy conditions: Either momentum (RSI >= 70, price increase, volume increase) or price drop
-        if (latest_rsi is not None and latest_rsi >= 70 and price_increase and volume_increase) or (cash_available >= total_cost_for_qty and price_drop):
+        # Updated buy condition: RSI < 30, volume decrease, bullish reversal followed by price decline >= 0.2%
+        if (latest_rsi is not None and latest_rsi < 30 and volume_decrease and bullish_reversal_detected and price_decline_after_reversal):
             buy_signal = 1
             api_symbol = symbol.replace('-', '.')
-            reason = "momentum (RSI >= 70, price increase, volume increase)" if (latest_rsi >= 70 and price_increase and volume_increase) else "price drop >= 0.2%"
+            reason = f"RSI < 30, volume decrease, bullish reversal ({', '.join(detected_patterns)}) followed by price decline >= 0.2%"
             try:
                 buy_order = api.submit_order(
                     symbol=api_symbol,
-                    notional=total_cost_for_qty,  # Use notional for fractional shares
+                    notional=total_cost_for_qty,
                     side='buy',
                     type='market',
                     time_in_force='day'
                 )
-                # Estimate quantity based on notional and current price
                 qty = round(total_cost_for_qty / current_price, 4)
-                print(f"{current_time_str}, Bought {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
-                logging.info(f"{current_time_str} Buy {qty:.4f} shares of {api_symbol} due to {reason}. RSI={latest_rsi:.2f}, Price Increase={price_increase}, Volume Increase={volume_increase}, Price Drop={price_drop}.")
-
-                with open(csv_filename, mode='a', newline='') as csv_file:
-                    csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                    csv_writer.writerow({
-                        'Date': current_time_str,
-                        'Buy': 'Buy',
-                        'Quantity': qty,
-                        'Symbol': api_symbol,
-                        'Price Per Share': current_price
-                    })
-
-                stocks_to_remove.append((api_symbol, current_price, today_date_str))
+                print(f"{current_time_str}, Submitted buy order for {qty:.4f} shares of {api_symbol} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
+                logging.info(f"{current_time_str} Submitted buy {qty:.4f} shares of {api_symbol} due to {reason}. RSI={latest_rsi:.2f}, Volume Decrease={volume_decrease}, Bullish Reversal={bullish_reversal_detected}, Price Decline >= 0.2%={price_decline_after_reversal}")
 
                 order_filled = False
+                filled_qty = 0
+                filled_price = current_price
                 for _ in range(30):
                     order_status = api.get_order(buy_order.id)
                     if order_status.status == 'filled':
                         order_filled = True
+                        filled_qty = float(order_status.filled_qty)
+                        filled_price = float(order_status.filled_avg_price or current_price)
+                        with buy_sell_lock:
+                            cash_available = round(float(api.get_account().cash), 2)
+                        actual_cost = filled_qty * filled_price
+                        print(f"Order filled for {filled_qty:.4f} shares of {api_symbol} at ${filled_price:.2f}, actual cost: ${actual_cost:.2f}")
+                        logging.info(f"Order filled for {filled_qty:.4f} shares of {api_symbol}, actual cost: ${actual_cost:.2f}")
                         break
                     time.sleep(2)
 
-                if order_filled and api.get_account().daytrade_count < 3:
-                    stop_order_id = place_trailing_stop_sell_order(api_symbol, qty, current_price)
-                    if stop_order_id:
-                        print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
-                    else:
-                        print(f"Failed to place trailing stop sell order for {api_symbol}")
+                if order_filled:
+                    with open(csv_filename, mode='a', newline='') as csv_file:
+                        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        csv_writer.writerow({
+                            'Date': current_time_str,
+                            'Buy': 'Buy',
+                            'Quantity': filled_qty,
+                            'Symbol': api_symbol,
+                            'Price Per Share': filled_price
+                        })
+                    stocks_to_remove.append((api_symbol, filled_price, today_date_str))
+                    if api.get_account().daytrade_count < 3:
+                        stop_order_id = place_trailing_stop_sell_order(api_symbol, filled_qty, filled_price)
+                        if stop_order_id:
+                            print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
+                        else:
+                            print(f"Failed to place trailing stop sell order for {api_symbol}")
                 else:
-                    print(f"Buy order not filled or day trade limit reached for {api_symbol}")
+                    print(f"Buy order not filled for {api_symbol}")
+                    logging.info(f"{current_time_str} Buy order not filled for {api_symbol}")
 
-            except Exception as e:
+            except tradeapi.rest.APIError as e:
                 print(f"Error submitting buy order for {api_symbol}: {e}")
                 logging.error(f"Error submitting buy order for {api_symbol}: {e}")
+                continue
 
         else:
-            print(f"{symbol}: Conditions not met. RSI = {latest_rsi:.2f} (required >= 70 for momentum), Price Increase = {price_increase}, Volume Increase = {volume_increase}, Price Drop = {price_drop} (required for dip)")
-            logging.info(f"{current_time_str} Did not buy {symbol} due to RSI = {latest_rsi:.2f}, Price Increase = {price_increase}, Volume Increase = {volume_increase}, Price Drop = {price_drop}.")
+            print(f"{symbol}: Conditions not met. RSI = {latest_rsi:.2f} (required < 30), Volume Decrease = {volume_decrease}, Bullish Reversal = {bullish_reversal_detected}, Price Decline >= 0.2% = {price_decline_after_reversal}")
+            logging.info(f"{current_time_str} Did not buy {symbol} due to RSI = {latest_rsi:.2f}, Volume Decrease = {volume_decrease}, Bullish Reversal = {bullish_reversal_detected}, Price Decline >= 0.2% = {price_decline_after_reversal}")
 
-        # Update previous price for next iteration
+        # Update previous price
         update_previous_price(symbol, current_price)
         time.sleep(0.8)
 
@@ -673,14 +750,14 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 trade_history = TradeHistory(
                     symbol=symbol,
                     action='buy',
-                    quantity=qty,
+                    quantity=filled_qty,  # Use actual filled quantity
                     price=price,
                     date=date
                 )
                 session.add(trade_history)
                 db_position = Position(
                     symbol=symbol,
-                    quantity=qty,
+                    quantity=filled_qty,  # Use actual filled quantity
                     avg_price=price,
                     purchase_date=date
                 )
