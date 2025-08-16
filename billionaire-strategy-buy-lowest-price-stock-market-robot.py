@@ -645,11 +645,11 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     total_equity = float(account.equity)
     print(f"Total account equity: ${total_equity:.2f}")
 
-    # Track open positions for portfolio risk cap (max 20% equity in open positions)
+    # Track open positions for portfolio risk cap (max 98% equity in open positions)
     print("Checking current portfolio exposure...")
     positions = api.list_positions()
     current_exposure = sum(float(pos.market_value) for pos in positions)
-    max_new_exposure = total_equity * 0.20 - current_exposure
+    max_new_exposure = total_equity * 0.98 - current_exposure
     if max_new_exposure <= 0:
         print("Portfolio exposure limit reached. No new buys.")
         logging.info("Portfolio exposure limit reached. No new buys.")
