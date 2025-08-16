@@ -26,8 +26,10 @@ APIBASEURL = os.getenv('APCA_API_BASE_URL')
 # Initialize the Alpaca API
 api = tradeapi.REST(APIKEYID, APISECRETKEY, APIBASEURL)
 
+# Global variables
 global stocks_to_buy, today_date, today_datetime, csv_writer, csv_filename, fieldnames, price_changes, end_time
 global current_price, today_date_str, qty
+global price_history, last_stored, interval_map
 
 # Configuration flags
 PRINT_STOCKS_TO_BUY = False  # Set to False for faster execution
@@ -43,6 +45,18 @@ stock_data = {}
 previous_prices = {}
 price_changes = {}
 end_time = 0  # Initialize end_time as a global variable
+
+price_history = {}  # symbol -> interval -> list of prices
+last_stored = {}    # symbol -> interval -> last_timestamp
+interval_map = {
+    '1min': 60,
+    '5min': 300,
+    '10min': 600,
+    '15min': 900,
+    '30min': 1800,
+    '45min': 2700,
+    '60min': 3600
+}  # intervals in seconds
 
 # Define the API datetime format
 api_time_format = '%Y-%m-%dT%H:%M:%S.%f-04:00'
@@ -90,6 +104,24 @@ session = Session()
 # Create tables if they don't exist
 Base.metadata.create_all(engine)
 
+# Add a cache for yfinance data
+data_cache = {}  # symbol -> {'timestamp': time, 'data_type': data}
+CACHE_EXPIRY = 120  # 2 minutes
+
+def get_cached_data(symbol, data_type, fetch_func, *args, **kwargs):
+    print(f"Checking cache for {symbol} {data_type}...")
+    key = (symbol, data_type)
+    current_time = time.time()
+    if key in data_cache and current_time - data_cache[key]['timestamp'] < CACHE_EXPIRY:
+        print(f"Using cached {data_type} for {symbol}.")
+        return data_cache[key]['data']
+    else:
+        print(f"Fetching new {data_type} for {symbol}...")
+        data = fetch_func(*args, **kwargs)
+        data_cache[key] = {'timestamp': current_time, 'data': data}
+        print(f"Cached {data_type} for {symbol}.")
+        return data
+
 def stop_if_stock_market_is_closed():
     market_open_time = time2(9, 30)
     market_close_time = time2(16, 0)
@@ -101,6 +133,7 @@ def stop_if_stock_market_is_closed():
         current_time_str = current_datetime.strftime("%A, %B %d, %Y, %I:%M:%S %p")
 
         if current_datetime.weekday() <= 4 and market_open_time <= current_time <= market_close_time:
+            print("Market is open. Proceeding with trading operations.")
             break
 
         print("\n")
@@ -150,9 +183,11 @@ def print_database_tables():
         print("\n")
 
 def get_stocks_to_trade():
+    print("Loading stocks to trade from file...")
     try:
         with open('electricity-or-utility-stocks-to-buy-list.txt', 'r') as file:
             stock_symbols = [line.strip() for line in file.readlines()]
+            print(f"Loaded {len(stock_symbols)} stock symbols from file.")
 
         if not stock_symbols:
             print("\n")
@@ -173,25 +208,44 @@ def get_stocks_to_trade():
         return []
 
 def remove_symbol_from_trade_list(symbol):
+    print(f"Removing {symbol} from trade list...")
     with open('electricity-or-utility-stocks-to-buy-list.txt', 'r') as file:
         lines = file.readlines()
     with open('electricity-or-utility-stocks-to-buy-list.txt', 'w') as file:
         for line in lines:
             if line.strip() != symbol:
                 file.write(line)
+    print(f"Successfully removed {symbol} from trade list.")
 
 def get_opening_price(symbol):
+    print(f"Fetching opening price for {symbol}...")
     symbol = symbol.replace('.', '-')
     stock_data = yf.Ticker(symbol)
+    time.sleep(2)
     try:
         opening_price = round(float(stock_data.history(period="1d")["Open"].iloc[0].item()), 4)
+        print(f"Opening price for {symbol}: ${opening_price:.4f}")
         return opening_price
     except IndexError:
         logging.error(f"Opening price not found for {symbol}.")
+        print(f"Error: Opening price not found for {symbol}.")
         return None
 
-def get_current_price(symbol):
+def get_current_price(symbol, retries=3):
+    print(f"Attempting to fetch current price for {symbol}...")
+    for attempt in range(retries):
+        try:
+            return get_cached_data(symbol, 'current_price', _fetch_current_price, symbol)
+        except Exception as e:
+            logging.error(f"Retry {attempt+1}/{retries} failed for {symbol}: {e}")
+            print(f"Retry {attempt+1}/{retries} failed for {symbol}: {e}")
+            time.sleep(2 ** attempt)  # Exponential backoff
+    print(f"Failed to fetch current price for {symbol} after {retries} attempts.")
+    return None
+
+def _fetch_current_price(symbol):
     with yf_lock:
+        print(f"Fetching current price data for {symbol}...")
         symbol = symbol.replace('.', '-')
         eastern = pytz.timezone('US/Eastern')
         current_datetime = datetime.now(eastern)
@@ -202,11 +256,11 @@ def get_current_price(symbol):
         post_market_start = time2(16, 0)
         post_market_end = time2(20, 0)
         stock_data = yf.Ticker(symbol)
-        time.sleep(1.5)
+        time.sleep(2)
         try:
             if pre_market_start <= current_datetime.time() < pre_market_end:
                 data = stock_data.history(start=current_datetime.strftime('%Y-%m-%d'), interval='1m', prepost=True)
-                time.sleep(1.5)
+                time.sleep(2)
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
                     pre_market_data = data.between_time(pre_market_start, pre_market_end)
@@ -215,18 +269,18 @@ def get_current_price(symbol):
                         logging.error("Pre-market: Current Price not found, using last closing price.")
                         print("Pre-market: Current Price not found, using last closing price.")
                         last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                        time.sleep(1.5)
+                        time.sleep(2)
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Pre-market: Current Price not found, using last closing price.")
                     print("Pre-market: Current Price not found, using last closing price.")
                     last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                    time.sleep(1.5)
+                    time.sleep(2)
                     current_price = last_close
             elif market_start <= current_datetime.time() < market_end:
                 data = stock_data.history(period='1d', interval='1m')
-                time.sleep(1.5)
+                time.sleep(2)
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
                     current_price = float(data['Close'].iloc[-1].item()) if not data.empty else None
@@ -234,18 +288,18 @@ def get_current_price(symbol):
                         logging.error("Market hours: Current Price not found, using last closing price.")
                         print("Market hours: Current Price not found, using last closing price.")
                         last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                        time.sleep(1.5)
+                        time.sleep(2)
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Market hours: Current Price not found, using last closing price.")
                     print("Market hours: Current Price not found, using last closing price.")
                     last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                    time.sleep(1.5)
+                    time.sleep(2)
                     current_price = last_close
             elif market_end <= current_datetime.time() < post_market_end:
                 data = stock_data.history(start=current_datetime.strftime('%Y-%m-%d'), interval='1m', prepost=True)
-                time.sleep(1.5)
+                time.sleep(2)
                 if not data.empty:
                     data.index = data.index.tz_convert(eastern)
                     post_market_data = data.between_time(post_market_start, post_market_end)
@@ -254,25 +308,25 @@ def get_current_price(symbol):
                         logging.error("Post-market: Current Price not found, using last closing price.")
                         print("Post-market: Current Price not found, using last closing price.")
                         last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                        time.sleep(1.5)
+                        time.sleep(2)
                         current_price = last_close
                 else:
                     current_price = None
                     logging.error("Post-market: Current Price not found, using last closing price.")
                     print("Post-market: Current Price not found, using last closing price.")
                     last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                    time.sleep(1.5)
+                    time.sleep(2)
                     current_price = last_close
             else:
                 last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                time.sleep(1.5)
+                time.sleep(2)
                 current_price = last_close
         except Exception as e:
             logging.error(f"Error fetching current price for {symbol}: {e}")
             print(f"Error fetching current price for {symbol}: {e}")
             try:
                 last_close = float(stock_data.history(period='1d')['Close'].iloc[-1].item())
-                time.sleep(1.5)
+                time.sleep(2)
                 current_price = last_close
             except Exception as e2:
                 logging.error(f"Error fetching last closing price for {symbol}: {e2}")
@@ -284,30 +338,78 @@ def get_current_price(symbol):
             logging.error(error_message)
             print(error_message)
 
-        return round(current_price, 4) if current_price is not None else None
+        current_price = round(current_price, 4) if current_price is not None else None
+        print(f"Current price for {symbol}: ${current_price:.4f}" if current_price else f"Failed to retrieve current price for {symbol}.")
+        return current_price
 
 def get_atr_high_price(symbol):
+    print(f"Calculating ATR high price for {symbol}...")
     symbol = symbol.replace('.', '-')
     atr_value = get_average_true_range(symbol)
     current_price = get_current_price(symbol)
-    return round(current_price + 0.40 * atr_value, 4) if current_price and atr_value else None
+    atr_high = round(current_price + 0.40 * atr_value, 4) if current_price and atr_value else None
+    print(f"ATR high price for {symbol}: ${atr_high:.4f}" if atr_high else f"Failed to calculate ATR high price for {symbol}.")
+    return atr_high
 
 def get_atr_low_price(symbol):
+    print(f"Calculating ATR low price for {symbol}...")
     symbol = symbol.replace('.', '-')
     atr_value = get_average_true_range(symbol)
     current_price = get_current_price(symbol)
-    return round(current_price - 0.10 * atr_value, 4) if current_price and atr_value else None
+    atr_low = round(current_price - 0.10 * atr_value, 4) if current_price and atr_value else None
+    print(f"ATR low price for {symbol}: ${atr_low:.4f}" if atr_low else f"Failed to calculate ATR low price for {symbol}.")
+    return atr_low
 
 def get_average_true_range(symbol):
+    print(f"Calculating ATR for {symbol}...")
+    def _fetch_atr():
+        symbol = symbol.replace('.', '-')
+        ticker = yf.Ticker(symbol)
+        time.sleep(2)
+        data = ticker.history(period='30d')
+        time.sleep(2)
+        try:
+            atr = talib.ATR(data['High'].values, data['Low'].values, data['Close'].values, timeperiod=22)
+            atr_value = atr[-1]
+            print(f"ATR for {symbol}: {atr_value:.4f}")
+            return atr_value
+        except Exception as e:
+            logging.error(f"Error calculating ATR for {symbol}: {e}")
+            print(f"Error calculating ATR for {symbol}: {e}")
+            return None
+    
+    return get_cached_data(symbol, 'atr', _fetch_atr)
+
+def is_in_uptrend(symbol):
+    print(f"Checking if {symbol} is in uptrend (above 200-day SMA)...")
     symbol = symbol.replace('.', '-')
-    ticker = yf.Ticker(symbol)
-    data = ticker.history(period='30d')
-    try:
-        atr = talib.ATR(data['High'].values, data['Low'].values, data['Close'].values, timeperiod=22)
-        return atr[-1]
-    except Exception as e:
-        logging.error(f"Error calculating ATR for {symbol}: {e}")
+    stock_data = yf.Ticker(symbol)
+    time.sleep(2)
+    historical_data = stock_data.history(period='200d')
+    time.sleep(2)
+    if historical_data.empty or len(historical_data) < 200:
+        print(f"Insufficient data for 200-day SMA for {symbol}. Assuming not in uptrend.")
+        return False
+    sma_200 = talib.SMA(historical_data['Close'].values, timeperiod=200)[-1]
+    current_price = get_current_price(symbol)
+    in_uptrend = current_price > sma_200 if current_price else False
+    print(f"{symbol} {'is' if in_uptrend else 'is not'} in uptrend (Current: {current_price:.2f}, SMA200: {sma_200:.2f})")
+    return in_uptrend
+
+def get_daily_rsi(symbol):
+    print(f"Calculating daily RSI for {symbol}...")
+    symbol = symbol.replace('.', '-')
+    stock_data = yf.Ticker(symbol)
+    time.sleep(2)
+    historical_data = stock_data.history(period='30d', interval='1d')
+    time.sleep(2)
+    if historical_data.empty:
+        print(f"No daily data for {symbol}. RSI calculation failed.")
         return None
+    rsi = talib.RSI(historical_data['Close'], timeperiod=14)[-1]
+    rsi_value = round(rsi, 2) if not np.isnan(rsi) else None
+    print(f"Daily RSI for {symbol}: {rsi_value}")
+    return rsi_value
 
 def status_printer_buy_stocks():
     print(f"\rBuy stocks function is working correctly right now. Checking stocks to buy.....", end='', flush=True)
@@ -318,9 +420,12 @@ def status_printer_sell_stocks():
     print()
 
 def calculate_technical_indicators(symbol, lookback_days=90):
+    print(f"Calculating technical indicators for {symbol} over {lookback_days} days...")
     symbol = symbol.replace('.', '-')
     stock_data = yf.Ticker(symbol)
+    time.sleep(2)
     historical_data = stock_data.history(period=f'{lookback_days}d')
+    time.sleep(2)
     short_window = 12
     long_window = 26
     signal_window = 9
@@ -331,33 +436,22 @@ def calculate_technical_indicators(symbol, lookback_days=90):
     rsi_period = 14
     historical_data['rsi'] = talib.RSI(historical_data['Close'], timeperiod=rsi_period)
     historical_data['volume'] = historical_data['Volume']
+    print(f"Technical indicators calculated for {symbol}.")
     return historical_data
 
 def calculate_rsi(symbol, period=14, interval='5m'):
-    """
-    Calculate the RSI for a given symbol using intraday data.
-    
-    Args:
-        symbol (str): Stock symbol (e.g., 'AAPL').
-        period (int): Number of periods for RSI calculation (default: 14).
-        interval (str): Data interval, e.g., '5m' for 5-minute data (default: '5m').
-    
-    Returns:
-        float: Latest RSI value, or None if calculation fails.
-    """
+    print(f"Calculating RSI for {symbol} (period={period}, interval={interval})...")
     try:
         symbol = symbol.replace('.', '-')  # Adjust for yfinance compatibility
         stock_data = yf.Ticker(symbol)
-        # Fetch intraday data for the current day, including pre/post-market
         historical_data = stock_data.history(period='1d', interval=interval, prepost=True)
-        time.sleep(1.5)  # Respect yfinance rate limits
+        time.sleep(2)
         
         if historical_data.empty or len(historical_data['Close']) < period:
             logging.error(f"Insufficient data for RSI calculation for {symbol} with {interval} interval.")
             print(f"Insufficient data for RSI calculation for {symbol}.")
             return None
         
-        # Calculate RSI using talib
         rsi = talib.RSI(historical_data['Close'], timeperiod=period)
         latest_rsi = rsi.iloc[-1] if not rsi.empty else None
         
@@ -366,7 +460,9 @@ def calculate_rsi(symbol, period=14, interval='5m'):
             print(f"Invalid RSI value for {symbol}.")
             return None
         
-        return round(latest_rsi, 2)
+        latest_rsi = round(latest_rsi, 2)
+        print(f"RSI for {symbol}: {latest_rsi}")
+        return latest_rsi
     
     except Exception as e:
         logging.error(f"Error calculating RSI for {symbol}: {e}")
@@ -380,21 +476,31 @@ def print_technical_indicators(symbol, historical_data):
     print("")
 
 def calculate_cash_on_hand():
+    print("Calculating available cash...")
     cash_available = round(float(api.get_account().cash), 2)
+    print(f"Cash available: ${cash_available:.2f}")
     return cash_available
 
 def calculate_total_symbols(stocks_to_buy):
+    print("Calculating total symbols to trade...")
     total_symbols = len(stocks_to_buy)
+    print(f"Total symbols: {total_symbols}")
     return total_symbols
 
 def allocate_cash_equally(cash_available, total_symbols):
+    print("Allocating cash equally among symbols...")
     max_allocation_per_symbol = 600.0  # Maximum dollar amount per stock
     allocation_per_symbol = min(max_allocation_per_symbol, cash_available / total_symbols) if total_symbols > 0 else 0
-    return round(allocation_per_symbol, 2)
+    allocation = round(allocation_per_symbol, 2)
+    print(f"Allocation per symbol: ${allocation:.2f}")
+    return allocation
 
 def get_previous_price(symbol):
+    print(f"Retrieving previous price for {symbol}...")
     if symbol in previous_prices:
-        return previous_prices[symbol]
+        price = previous_prices[symbol]
+        print(f"Previous price for {symbol}: ${price:.4f}")
+        return price
     else:
         current_price = get_current_price(symbol)
         previous_prices[symbol] = current_price
@@ -402,14 +508,18 @@ def get_previous_price(symbol):
         return current_price
 
 def update_previous_price(symbol, current_price):
+    print(f"Updating previous price for {symbol} to ${current_price:.4f}")
     previous_prices[symbol] = current_price
 
 def run_schedule():
+    print("Running schedule for pending tasks...")
     while not end_time_reached():
         schedule.run_pending()
         time.sleep(1)
+    print("Schedule completed.")
 
 def track_price_changes(symbol):
+    print(f"Tracking price changes for {symbol}...")
     current_price = get_current_price(symbol)
     previous_price = get_previous_price(symbol)
 
@@ -435,9 +545,12 @@ def track_price_changes(symbol):
     update_previous_price(symbol, current_price)
 
 def end_time_reached():
-    return time.time() >= end_time
+    reached = time.time() >= end_time
+    print(f"Checking if end time reached: {'Yes' if reached else 'No'}")
+    return reached
 
 def get_last_price_within_past_5_minutes(symbols_to_buy):
+    print("Fetching last prices within past 5 minutes for symbols...")
     results = {}
     eastern = pytz.timezone('US/Eastern')
     current_datetime = datetime.now(eastern)
@@ -445,15 +558,18 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
     start_time = end_time - timedelta(minutes=5)
 
     for symbol in symbols_to_buy:
+        print(f"Fetching 5-minute price data for {symbol}...")
         try:
             symbol = symbol.replace('.', '-')
             data = yf.download(symbol, start=start_time, end=end_time, interval='1m', prepost=True, auto_adjust=False)
-            time.sleep(1)
+            time.sleep(2)
             if not data.empty:
                 last_price = round(float(data['Close'].iloc[-1].item()), 2)
                 results[symbol] = last_price
+                print(f"Last price for {symbol} within 5 minutes: ${last_price:.2f}")
             else:
                 results[symbol] = None
+                print(f"No price data found for {symbol} within past 5 minutes.")
         except Exception as e:
             print(f"Error occurred while fetching data for {symbol}: {e}")
             logging.error(f"Error occurred while fetching data for {symbol}: {e}")
@@ -462,68 +578,60 @@ def get_last_price_within_past_5_minutes(symbols_to_buy):
     return results
 
 def get_most_recent_purchase_date(symbol):
-    """
-    Retrieve the most recent buy order date for a specific symbol using Alpaca API.
-    Returns the date (YYYY-MM-DD) of the most recent filled buy order, or today's date if none found.
-    Fetches all historical orders by paging backward from now.
-    """
+    print(f"Retrieving most recent purchase date for {symbol}...")
     try:
-        # Initialize for the specific symbol
         purchase_date_str = None
         order_list = []
         CHUNK_SIZE = 500
-        # Start from now to include recent orders and page backward
         end_time = datetime.now(pytz.UTC).isoformat()
 
-        # Fetch all orders for the symbol in chunks, paging older
         while True:
+            print(f"Fetching orders for {symbol} until {end_time}...")
             order_chunk = api.list_orders(
                 status='all',
                 nested=False,
                 direction='desc',
                 until=end_time,
                 limit=CHUNK_SIZE,
-                symbols=[symbol]  # Fetch only for this symbol
+                symbols=[symbol]
             )
             if order_chunk:
                 order_list.extend(order_chunk)
-                # Update to fetch the next older chunk
                 end_time = (order_chunk[-1].submitted_at - timedelta(seconds=1)).isoformat()
+                print(f"Fetched {len(order_chunk)} orders for {symbol}.")
             else:
+                print(f"No more orders to fetch for {symbol}.")
                 break
 
-        # Filter filled buy orders for the symbol
         buy_orders = [
             order for order in order_list
             if order.side == 'buy' and order.status == 'filled' and order.filled_at
         ]
 
         if buy_orders:
-            # Get the most recent buy order by filled_at
             most_recent_buy = max(buy_orders, key=lambda order: order.filled_at)
             purchase_date = most_recent_buy.filled_at.date()
             purchase_date_str = purchase_date.strftime("%Y-%m-%d")
             print(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
             logging.info(f"Most recent purchase date for {symbol}: {purchase_date_str} (from {len(buy_orders)} buy orders)")
         else:
-            # Use today's date if no buy orders found
             purchase_date = datetime.now(pytz.UTC).date()
             purchase_date_str = purchase_date.strftime("%Y-%m-%d")
             print(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}")
-            logging.warning(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}. Orders fetched: {len(order_list)}. Verify Alpaca API data and account history.")
+            logging.warning(f"No filled buy orders found for {symbol}. Using today's date: {purchase_date_str}. Orders fetched: {len(order_list)}.")
 
         return purchase_date_str
 
     except Exception as e:
         logging.error(f"Error fetching buy orders for {symbol}: {e}")
-        # Fallback to today's date on error
         purchase_date = datetime.now(pytz.UTC).date()
         purchase_date_str = purchase_date.strftime("%Y-%m-%d")
         print(f"Error fetching buy orders for {symbol}: {e}. Using today's date: {purchase_date_str}")
         return purchase_date_str
 
 def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
-    global symbol, current_price, buy_signal
+    print("Starting buy_stocks function...")
+    global symbol, current_price, buy_signal, price_history, last_stored
     if not symbols_to_buy:
         print("No stocks to buy.")
         logging.info("No stocks to buy.")
@@ -531,15 +639,33 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
     stocks_to_remove = []
     buy_signal = 0
 
+    # Get total equity for risk calculations
+    print("Fetching account equity for risk calculations...")
+    account = api.get_account()
+    total_equity = float(account.equity)
+    print(f"Total account equity: ${total_equity:.2f}")
+
+    # Track open positions for portfolio risk cap (max 20% equity in open positions)
+    print("Checking current portfolio exposure...")
+    positions = api.list_positions()
+    current_exposure = sum(float(pos.market_value) for pos in positions)
+    max_new_exposure = total_equity * 0.20 - current_exposure
+    if max_new_exposure <= 0:
+        print("Portfolio exposure limit reached. No new buys.")
+        logging.info("Portfolio exposure limit reached. No new buys.")
+        return
+    print(f"Current exposure: ${current_exposure:.2f}, Max new exposure: ${max_new_exposure:.2f}")
+
     # Track processed symbols for dynamic allocation
     processed_symbols = 0
     valid_symbols = []
 
     # First pass: Filter valid symbols to avoid wasting allocations
+    print("Filtering valid symbols for buying...")
     for symbol in symbols_to_buy:
         current_price = get_current_price(symbol)
         if current_price is None:
-            print(f"No valid price data for {symbol}.")
+            print(f"No valid price data for {symbol}. Skipping.")
             logging.info(f"No valid price data for {symbol}.")
             continue
         historical_data = calculate_technical_indicators(symbol, lookback_days=5)
@@ -548,6 +674,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"No historical data for {symbol}.")
             continue
         valid_symbols.append(symbol)
+    print(f"Valid symbols to process: {valid_symbols}")
 
     # Check if there are valid symbols
     if not valid_symbols:
@@ -557,6 +684,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
 
     # Process each valid symbol
     for symbol in valid_symbols:
+        print(f"Processing {symbol}...")
         processed_symbols += 1
         today_date = datetime.today().date()
         today_date_str = today_date.strftime("%Y-%m-%d")
@@ -570,25 +698,44 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"No valid price data for {symbol}.")
             continue
 
-        # Get historical data for volume, RSI, and candlesticks (use intraday for better pattern detection)
+        # Update price history for the symbol at specified intervals
+        current_timestamp = time.time()
+        if symbol not in price_history:
+            price_history[symbol] = {interval: [] for interval in interval_map}
+            last_stored[symbol] = {interval: 0 for interval in interval_map}
+        for interval, delta in interval_map.items():
+            if current_timestamp - last_stored[symbol][interval] >= delta:
+                price_history[symbol][interval].append(current_price)
+                last_stored[symbol][interval] = current_timestamp
+                print(f"Stored price {current_price} for {symbol} at {interval} interval.")
+                logging.info(f"Stored price {current_price} for {symbol} at {interval} interval.")
+
+        # Get historical data for volume, RSI, and candlesticks
         symbol_yf = symbol.replace('.', '-')
+        print(f"Fetching 5-day 5-minute historical data for {symbol_yf}...")
         stock_data = yf.Ticker(symbol_yf)
+        time.sleep(2)
         historical_data = stock_data.history(period='5d', interval='5m', prepost=True)
-        if historical_data.empty or len(historical_data) < 3:  # Require at least 3 candles for patterns
+        time.sleep(2)
+        if historical_data.empty or len(historical_data) < 3:
             print(f"Insufficient historical data for {symbol} (rows: {len(historical_data)}). Skipping.")
             logging.info(f"Insufficient historical data for {symbol} (rows: {len(historical_data)}).")
             continue
 
-        # Calculate volume decrease: Recent 5-candle avg volume < prior 5-candle avg volume
+        # Calculate volume decrease
+        print(f"Calculating volume metrics for {symbol}...")
         recent_avg_volume = historical_data['Volume'].iloc[-5:].mean() if len(historical_data) >= 5 else 0
         prior_avg_volume = historical_data['Volume'].iloc[-10:-5].mean() if len(historical_data) >= 10 else recent_avg_volume
         volume_decrease = recent_avg_volume < prior_avg_volume if len(historical_data) >= 10 else False
         current_volume = historical_data['Volume'].iloc[-1]
+        print(f"{symbol}: Recent avg volume = {recent_avg_volume:.0f}, Prior avg volume = {prior_avg_volume:.0f}, Volume decrease = {volume_decrease}")
 
-        # Calculate RSI decrease: Recent 5-candle avg RSI < prior 5-candle avg RSI
+        # Calculate RSI decrease
+        print(f"Calculating RSI metrics for {symbol}...")
         close_prices = historical_data['Close'].values
         rsi_series = talib.RSI(close_prices, timeperiod=14)
         rsi_decrease = False
+        latest_rsi = rsi_series[-1] if len(rsi_series) > 0 else None
         if len(rsi_series) >= 10:
             recent_rsi_values = rsi_series[-5:][~np.isnan(rsi_series[-5:])]
             prior_rsi_values = rsi_series[-10:-5][~np.isnan(rsi_series[-10:-5])]
@@ -602,17 +749,32 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
         else:
             recent_avg_rsi = 0
             prior_avg_rsi = 0
+        print(f"{symbol}: Latest RSI = {latest_rsi:.2f}, Recent avg RSI = {recent_avg_rsi:.2f}, Prior avg RSI = {prior_avg_rsi:.2f}, RSI decrease = {rsi_decrease}")
 
-        # Check price increase (for logging, not used in buy condition)
+        # Calculate MACD
+        print(f"Calculating MACD for {symbol}...")
+        short_window = 12
+        long_window = 26
+        signal_window = 9
+        macd, macd_signal, _ = talib.MACD(close_prices, fastperiod=short_window, slowperiod=long_window, signalperiod=signal_window)
+        latest_macd = macd[-1] if len(macd) > 0 else None
+        latest_macd_signal = macd_signal[-1] if len(macd_signal) > 0 else None
+        macd_above_signal = latest_macd > latest_macd_signal if latest_macd is not None else False
+        print(f"{symbol}: MACD = {latest_macd:.2f}, Signal = {latest_macd_signal:.2f}, MACD above signal = {macd_above_signal}")
+
+        # Check price increase (for logging)
         previous_price = get_previous_price(symbol)
-        price_increase = current_price > previous_price * 1.005  # 0.5% increase
+        price_increase = current_price > previous_price * 1.005
+        print(f"{symbol}: Price increase check: Current = ${current_price:.2f}, Previous = ${previous_price:.2f}, Increase = {price_increase}")
 
-        # Check price drop: Get last price within past 5 minutes
+        # Check price drop
+        print(f"Checking price drop for {symbol}...")
         last_prices = get_last_price_within_past_5_minutes([symbol])
         last_price = last_prices.get(symbol)
         if last_price is None:
             try:
                 last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)
+                time.sleep(2)
                 print(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
                 logging.info(f"No price found for {symbol} in past 5 minutes. Using last closing price: {last_price}")
             except Exception as e:
@@ -620,21 +782,29 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 logging.error(f"Error fetching last closing price for {symbol}: {e}")
                 continue
 
-        # Calculate price drop: At least 0.2% decline from last price
-        price_decline_threshold = last_price * (1 - 0.002)  # 0.2% decline
+        price_decline_threshold = last_price * (1 - 0.002)
         price_decline = current_price <= price_decline_threshold
+        print(f"{symbol}: Price decline check: Current = ${current_price:.2f}, Threshold = ${price_decline_threshold:.2f}, Decline = {price_decline}")
 
-        # Detect any of the 8 bullish reversal candlestick patterns using TA-Lib over last 20 candles
+        # Calculate short-term price trend
+        short_term_trend = None
+        if symbol in price_history and '5min' in price_history[symbol] and len(price_history[symbol]['5min']) >= 2:
+            recent_prices = price_history[symbol]['5min'][-2:]
+            short_term_trend = 'up' if recent_prices[-1] > recent_prices[-2] else 'down'
+            print(f"{symbol}: Short-term price trend (5min): {short_term_trend}")
+            logging.info(f"{symbol}: Short-term price trend (5min): {short_term_trend}")
+
+        # Detect bullish reversal candlestick patterns
+        print(f"Checking for bullish reversal patterns in {symbol}...")
         open_prices = historical_data['Open'].values
         high_prices = historical_data['High'].values
         low_prices = historical_data['Low'].values
         close_prices = historical_data['Close'].values
 
-        # Check for patterns in the last 20 candles
         bullish_reversal_detected = False
         reversal_candle_index = None
         detected_patterns = []
-        for i in range(-1, -21, -1):  # Check last 20 candles (index -1 to -20)
+        for i in range(-1, -21, -1):
             if len(historical_data) < abs(i):
                 continue
             try:
@@ -653,16 +823,20 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                     bullish_reversal_detected = True
                     detected_patterns = current_detected
                     reversal_candle_index = i
-                    break  # Take the most recent reversal pattern
+                    break
             except IndexError as e:
                 print(f"IndexError in candlestick pattern detection for {symbol}: {e}")
                 logging.error(f"IndexError in candlestick pattern detection for {symbol}: {e}")
                 continue
 
-        # Log detected patterns, volume decrease, RSI decrease, and price decline
         if detected_patterns:
             print(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
             logging.info(f"{symbol}: Detected bullish reversal patterns at candle {reversal_candle_index}: {', '.join(detected_patterns)}")
+            if symbol in price_history:
+                for interval, prices in price_history[symbol].items():
+                    if prices:
+                        print(f"{symbol}: Price history at {interval}: {prices[-5:]}")
+                        logging.info(f"{symbol}: Price history at {interval}: {prices[-5:]}")
         if price_decline:
             print(f"{symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
             logging.info(f"{symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
@@ -673,25 +847,108 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             print(f"{symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
             logging.info(f"{symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
 
-        # Dynamic cash check with lock
+        # Add trend filter
+        if not is_in_uptrend(symbol):
+            print(f"{symbol}: Not in uptrend (below 200-day SMA). Skipping.")
+            logging.info(f"{symbol}: Not in uptrend. Skipping.")
+            continue
+
+        # Add multi-timeframe confirmation
+        daily_rsi = get_daily_rsi(symbol)
+        if daily_rsi is None or daily_rsi > 50:
+            print(f"{symbol}: Daily RSI not oversold ({daily_rsi}). Skipping.")
+            logging.info(f"{symbol}: Daily RSI not oversold ({daily_rsi}). Skipping.")
+            continue
+
+        # Pattern-specific buy conditions with scoring
+        buy_conditions_met = False
+        specific_reason = ""
+        score = 0
+        if bullish_reversal_detected:
+            score += 2
+            price_stable = True
+            if symbol in price_history and '5min' in price_history[symbol] and len(price_history[symbol]['5min']) >= 2:
+                recent_prices = price_history[symbol]['5min'][-2:]
+                price_stable = abs(recent_prices[-1] - recent_prices[-2]) / recent_prices[-2] < 0.005
+                print(f"{symbol}: Price stability check (5min): {price_stable}")
+                logging.info(f"{symbol}: Price stability check (5min): {price_stable}")
+                if price_stable:
+                    score += 1
+
+            if macd_above_signal:
+                score += 1
+            if not volume_decrease:
+                score += 1
+            if rsi_decrease:
+                score += 1
+            if price_decline:
+                score += 1
+
+            for pattern in detected_patterns:
+                if pattern == 'Hammer':
+                    if latest_rsi < 35 and price_decline >= (last_price * 0.003):
+                        score += 1
+                elif pattern == 'Bullish Engulfing':
+                    if recent_avg_volume > 1.5 * prior_avg_volume:
+                        score += 1
+                elif pattern == 'Morning Star':
+                    if latest_rsi < 40:
+                        score += 1
+                elif pattern == 'Piercing Line':
+                    if recent_avg_rsi < 40:
+                        score += 1
+                elif pattern == 'Three White Soldiers':
+                    if not volume_decrease:
+                        score += 1
+                elif pattern == 'Dragonfly Doji':
+                    if latest_rsi < 30:
+                        score += 1
+                elif pattern == 'Inverted Hammer':
+                    if rsi_decrease:
+                        score += 1
+                elif pattern == 'Tweezer Bottom':
+                    if latest_rsi < 40:
+                        score += 1
+
+            if score >= 3:
+                buy_conditions_met = True
+                specific_reason = f"Score: {score}, patterns: {', '.join(detected_patterns)}"
+
+        if not buy_conditions_met:
+            print(f"{symbol}: Buy score too low ({score} < 3). Skipping.")
+            logging.info(f"{symbol}: Buy score too low ({score} < 3). Skipping.")
+            continue
+
+        # Volatility-based position sizing
+        print(f"Calculating position size for {symbol}...")
+        atr = get_average_true_range(symbol)
+        if atr is None:
+            print(f"No ATR for {symbol}. Skipping.")
+            continue
+        stop_loss_distance = 2 * atr
+        risk_per_share = stop_loss_distance
+        risk_amount = 0.01 * total_equity
+        qty = risk_amount / risk_per_share if risk_per_share > 0 else 0
+        total_cost_for_qty = qty * current_price
+
+        # Cap by available cash and portfolio exposure
         with buy_sell_lock:
             cash_available = round(float(api.get_account().cash), 2)
-            remaining_symbols = len(valid_symbols) - processed_symbols + 1
-            # Calculate equal allocation across all valid symbols, ensuring $1.00 remains
-            max_possible_allocation = cash_available - 1.00  # Leave $1.00 in account
-            if max_possible_allocation < 1.00:
-                print(f"Insufficient cash for {symbol}. Available: ${cash_available:.2f}, Required: >= $2.00 to leave $1.00")
-                logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash: ${cash_available:.2f}")
+            print(f"Cash available for {symbol}: ${cash_available:.2f}")
+            total_cost_for_qty = min(total_cost_for_qty, cash_available - 1.00, max_new_exposure)
+            if total_cost_for_qty < 1.00:
+                print(f"Insufficient risk-adjusted allocation for {symbol}.")
                 continue
-            # Divide cash equally among all valid symbols (not just remaining ones)
-            allocation_per_symbol = max_possible_allocation / len(valid_symbols) if len(valid_symbols) > 0 else 0
-            max_allocation_per_symbol = 600.0  # Maximum dollar amount per symbol
-            total_cost_for_qty = min(allocation_per_symbol, max_allocation_per_symbol)
-            total_cost_for_qty = max(total_cost_for_qty, 1.00)  # Ensure minimum order size of $1.00
-            qty = round(total_cost_for_qty / current_price, 4) if current_price > 0 else 0
+            qty = round(total_cost_for_qty / current_price, 4)
+
+        # Estimate slippage
+        estimated_slippage = total_cost_for_qty * 0.001
+        total_cost_for_qty -= estimated_slippage
+        qty = round(total_cost_for_qty / current_price, 4)
+        print(f"{symbol}: Adjusted for slippage (0.1%): Notional = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
 
         # Log current conditions
-        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${price_decline_threshold:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Recent Avg RSI = {recent_avg_rsi:.2f}, Prior Avg RSI = {prior_avg_rsi:.2f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
+        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${price_decline_threshold:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Recent Avg RSI = {recent_avg_rsi:.2f}, Prior Avg RSI = {prior_avg_rsi:.2f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}, Score = {score}")
         status_printer_buy_stocks()
 
         # Unified cash checks
@@ -704,11 +961,11 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"{current_time_str} Did not buy {symbol} due to insufficient cash")
             continue
 
-        # Updated buy condition: bullish reversal detected, volume decrease, RSI decrease, price decline >= 0.2%
-        if (bullish_reversal_detected and volume_decrease and rsi_decrease and price_decline):
+        if buy_conditions_met:
             buy_signal = 1
             api_symbol = symbol.replace('-', '.')
-            reason = f"bullish reversal ({', '.join(detected_patterns)}), volume decrease, RSI decrease, price decline >= 0.2%"
+            reason = f"bullish reversal ({', '.join(detected_patterns)}), {specific_reason}"
+            print(f"Submitting buy order for {symbol}...")
             try:
                 buy_order = api.submit_order(
                     symbol=api_symbol,
@@ -724,6 +981,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 filled_qty = 0
                 filled_price = current_price
                 for _ in range(30):
+                    print(f"Checking order status for {api_symbol}...")
                     order_status = api.get_order(buy_order.id)
                     if order_status.status == 'filled':
                         order_filled = True
@@ -738,6 +996,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                     time.sleep(2)
 
                 if order_filled:
+                    print(f"Logging trade for {api_symbol}...")
                     with open(csv_filename, mode='a', newline='') as csv_file:
                         csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                         csv_writer.writerow({
@@ -764,15 +1023,15 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 continue
 
         else:
-            print(f"{symbol}: Conditions not met. Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}")
-            logging.info(f"{current_time_str} Did not buy {symbol} due to Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}")
+            print(f"{symbol}: Conditions not met for any detected patterns. Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}, Price Stable = {price_stable}")
+            logging.info(f"{current_time_str} Did not buy {symbol} due to Bullish Reversal = {bullish_reversal_detected}, Volume Decrease = {volume_decrease}, RSI Decrease = {rsi_decrease}, Price Decline >= 0.2% = {price_decline}, Price Stable = {price_stable}")
 
-        # Update previous price
         update_previous_price(symbol, current_price)
         time.sleep(0.8)
 
     try:
         with buy_sell_lock:
+            print("Updating database with buy transactions...")
             for symbol, price, date in stocks_to_remove:
                 bought_stocks[symbol] = (round(price, 4), date)
                 stocks_to_buy.remove(symbol.replace('.', '-'))
@@ -780,19 +1039,20 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                 trade_history = TradeHistory(
                     symbol=symbol,
                     action='buy',
-                    quantity=filled_qty,  # Use actual filled quantity
+                    quantity=filled_qty,
                     price=price,
                     date=date
                 )
                 session.add(trade_history)
                 db_position = Position(
                     symbol=symbol,
-                    quantity=filled_qty,  # Use actual filled quantity
+                    quantity=filled_qty,
                     avg_price=price,
                     purchase_date=date
                 )
                 session.add(db_position)
             session.commit()
+            print("Database updated successfully.")
             refresh_after_buy()
 
     except SQLAlchemyError as e:
@@ -802,13 +1062,15 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
 
 def refresh_after_buy():
     global stocks_to_buy, bought_stocks
+    print("Refreshing after buy operation...")
     time.sleep(2)
     stocks_to_buy = get_stocks_to_trade()
     bought_stocks = update_bought_stocks_from_api()
+    print("Refresh complete.")
 
 def place_trailing_stop_sell_order(symbol, qty, current_price):
+    print(f"Attempting to place trailing stop sell order for {symbol}...")
     try:
-        # Check if qty is a fractional share
         if qty != int(qty):
             print(f"Skipping trailing stop sell order for {symbol}: Fractional share quantity {qty:.4f} detected.")
             logging.error(f"Skipped trailing stop sell order for {symbol}: Fractional quantity {qty:.4f} not allowed.")
@@ -816,7 +1078,7 @@ def place_trailing_stop_sell_order(symbol, qty, current_price):
 
         stop_loss_percent = 1.0
         stop_loss_price = current_price * (1 - stop_loss_percent / 100)
-        print(f"Attempting to place trailing stop sell order for {qty} shares of {symbol} "
+        print(f"Placing trailing stop sell order for {qty} shares of {symbol} "
               f"with trail percent {stop_loss_percent}% (initial stop price: {stop_loss_price:.2f})")
 
         stop_order = api.submit_order(
@@ -840,15 +1102,15 @@ def place_trailing_stop_sell_order(symbol, qty, current_price):
         return None
 
 def update_bought_stocks_from_api():
+    print("Updating bought stocks from Alpaca API...")
     positions = api.list_positions()
     bought_stocks = {}
 
     for position in positions:
         symbol = position.symbol
         avg_entry_price = float(position.avg_entry_price)
-        quantity = float(position.qty)  # Use float to handle fractional shares
+        quantity = float(position.qty)
 
-        # Get the most recent purchase date for the symbol
         purchase_date_str = get_most_recent_purchase_date(symbol)
 
         try:
@@ -868,19 +1130,20 @@ def update_bought_stocks_from_api():
         bought_stocks[symbol] = (avg_entry_price, purchase_date_str)
 
     session.commit()
+    print(f"Updated {len(bought_stocks)} bought stocks from API.")
     return bought_stocks
 
 def sell_stocks(bought_stocks, buy_sell_lock):
+    print("Starting sell_stocks function...")
     stocks_to_remove = []
     now = datetime.now(pytz.timezone('US/Eastern'))
     current_time_str = now.strftime("Eastern Time | %I:%M:%S %p | %m-%d-%Y |")
     today_date_str = datetime.today().date().strftime("%Y-%m-%d")
-    comparison_date = datetime.today().date()  # Always set to today's date
+    comparison_date = datetime.today().date()
 
     for symbol, (bought_price, purchase_date) in bought_stocks.items():
         status_printer_sell_stocks()
         
-        # Parse purchase_date as a date object
         try:
             bought_date = datetime.strptime(purchase_date, "%Y-%m-%d").date()
         except (ValueError, TypeError) as e:
@@ -888,11 +1151,10 @@ def sell_stocks(bought_stocks, buy_sell_lock):
             logging.error(f"Error parsing purchase_date for {symbol}: {purchase_date}. Error: {e}")
             continue
 
-        # Log date comparison details
         print(f"Checking {symbol}: Purchase date = {bought_date}, Comparison date = {comparison_date}")
         logging.info(f"Checking {symbol}: Purchase date = {bought_date}, Comparison date = {comparison_date}")
 
-        if bought_date <= comparison_date:  # Allow selling on or before comparison date
+        if bought_date <= comparison_date:
             current_price = get_current_price(symbol)
             if current_price is None:
                 print(f"Skipping {symbol}: Could not retrieve current price.")
@@ -902,9 +1164,8 @@ def sell_stocks(bought_stocks, buy_sell_lock):
             try:
                 position = api.get_position(symbol)
                 bought_price = float(position.avg_entry_price)
-                qty = float(position.qty)  # Use float for fractional shares
+                qty = float(position.qty)
 
-                # Fetch all open orders and filter for the specific symbol
                 open_orders = api.list_orders(status='open')
                 symbol_open_orders = [order for order in open_orders if order.symbol == symbol]
                 
@@ -916,12 +1177,12 @@ def sell_stocks(bought_stocks, buy_sell_lock):
                     logging.info(f"{current_time_str} Skipped sell for {symbol} due to existing open order.")
                     continue
 
-                # Check sell condition: current price is at least 0.5% higher than bought price
                 sell_threshold = bought_price * 1.005
                 print(f"{symbol}: Current price = {current_price:.2f}, Bought price = {bought_price:.2f}, Sell threshold = {sell_threshold:.2f}")
                 logging.info(f"{symbol}: Current price = {current_price:.2f}, Bought price = {bought_price:.2f}, Sell threshold = {sell_threshold:.2f}")
 
                 if current_price >= sell_threshold:
+                    print(f"Submitting sell order for {symbol}...")
                     api.submit_order(
                         symbol=symbol,
                         qty=qty,
@@ -956,6 +1217,7 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
     try:
         with buy_sell_lock:
+            print("Updating database with sell transactions...")
             for symbol, qty, current_price in stocks_to_remove:
                 del bought_stocks[symbol]
                 trade_history = TradeHistory(
@@ -968,6 +1230,7 @@ def sell_stocks(bought_stocks, buy_sell_lock):
                 session.add(trade_history)
                 session.query(Position).filter_by(symbol=symbol).delete()
             session.commit()
+            print("Database updated successfully.")
             refresh_after_sell()
     except SQLAlchemyError as e:
         session.rollback()
@@ -976,10 +1239,13 @@ def sell_stocks(bought_stocks, buy_sell_lock):
 
 def refresh_after_sell():
     global bought_stocks
+    print("Refreshing after sell operation...")
     time.sleep(2)
     bought_stocks = update_bought_stocks_from_api()
+    print("Refresh complete.")
 
 def load_positions_from_database():
+    print("Loading positions from database...")
     positions = session.query(Position).all()
     bought_stocks = {}
     for position in positions:
@@ -987,10 +1253,12 @@ def load_positions_from_database():
         avg_price = position.avg_price
         purchase_date = position.purchase_date
         bought_stocks[symbol] = (avg_price, purchase_date)
+    print(f"Loaded {len(bought_stocks)} positions from database.")
     return bought_stocks
 
 def main():
     global stocks_to_buy
+    print("Starting main trading program...")
     stocks_to_buy = get_stocks_to_trade()
     bought_stocks = load_positions_from_database()
     buy_sell_lock = threading.Lock()
@@ -1023,6 +1291,7 @@ def main():
             if not bought_stocks:
                 bought_stocks = update_bought_stocks_from_api()
 
+            print("Starting buy and sell threads...")
             buy_thread = threading.Thread(target=buy_stocks, args=(bought_stocks, stocks_to_buy, buy_sell_lock))
             sell_thread = threading.Thread(target=sell_stocks, args=(bought_stocks, buy_sell_lock))
 
@@ -1031,6 +1300,7 @@ def main():
 
             buy_thread.join()
             sell_thread.join()
+            print("Buy and sell threads completed.")
 
             if PRINT_STOCKS_TO_BUY:
                 print("\n")
@@ -1075,11 +1345,14 @@ def main():
 
         except Exception as e:
             logging.error(f"Error encountered: {e}")
+            print(f"Error encountered in main loop: {e}")
             time.sleep(120)
 
 if __name__ == '__main__':
     try:
+        print("Initializing trading bot...")
         main()
     except Exception as e:
         logging.error(f"Error encountered: {e}")
+        print(f"Critical error: {e}")
         session.close()
