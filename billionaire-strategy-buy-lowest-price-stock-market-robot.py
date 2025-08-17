@@ -36,6 +36,7 @@ PRINT_STOCKS_TO_BUY = False  # Set to False for faster execution
 PRINT_ROBOT_STORED_BUY_AND_SELL_LIST_DATABASE = True  # Set to True to view database
 PRINT_DATABASE = True  # Set to True to view stocks to sell
 DEBUG = False  # Set to False for faster execution
+ALL_BUY_ORDERS_ARE_1_DOLLAR = False  # When True, every buy order is a $1.00 fractional share market day order
 
 # Set the timezone to Eastern
 eastern = pytz.timezone('US/Eastern')
@@ -919,39 +920,43 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
             logging.info(f"{symbol}: Buy score too low ({score} < 3). Skipping.")
             continue
 
-        # Volatility-based position sizing
-        print(f"Calculating position size for {symbol}...")
-        atr = get_average_true_range(symbol)
-        if atr is None:
-            print(f"No ATR for {symbol}. Skipping.")
-            continue
-        stop_loss_distance = 2 * atr
-        risk_per_share = stop_loss_distance
-        risk_amount = 0.01 * total_equity
-        qty = risk_amount / risk_per_share if risk_per_share > 0 else 0
-        total_cost_for_qty = qty * current_price
-
-        # Cap by available cash and portfolio exposure
-        with buy_sell_lock:
-            cash_available = round(float(api.get_account().cash), 2)
-            print(f"Cash available for {symbol}: ${cash_available:.2f}")
-            total_cost_for_qty = min(total_cost_for_qty, cash_available - 1.00, max_new_exposure)
-            if total_cost_for_qty < 1.00:
-                print(f"Insufficient risk-adjusted allocation for {symbol}.")
-                continue
+        # Determine position sizing
+        if ALL_BUY_ORDERS_ARE_1_DOLLAR:
+            total_cost_for_qty = 1.00
             qty = round(total_cost_for_qty / current_price, 4)
+            print(f"{symbol}: Using $1.00 fractional share order mode. Qty = {qty:.4f}")
+        else:
+            # Volatility-based position sizing
+            print(f"Calculating position size for {symbol}...")
+            atr = get_average_true_range(symbol)
+            if atr is None:
+                print(f"No ATR for {symbol}. Skipping.")
+                continue
+            stop_loss_distance = 2 * atr
+            risk_per_share = stop_loss_distance
+            risk_amount = 0.01 * total_equity
+            qty = risk_amount / risk_per_share if risk_per_share > 0 else 0
+            total_cost_for_qty = qty * current_price
 
-        # Estimate slippage
-        estimated_slippage = total_cost_for_qty * 0.001
-        total_cost_for_qty -= estimated_slippage
-        qty = round(total_cost_for_qty / current_price, 4)
-        print(f"{symbol}: Adjusted for slippage (0.1%): Notional = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
+            # Cap by available cash and portfolio exposure
+            with buy_sell_lock:
+                cash_available = round(float(api.get_account().cash), 2)
+                print(f"Cash available for {symbol}: ${cash_available:.2f}")
+                total_cost_for_qty = min(total_cost_for_qty, cash_available - 1.00, max_new_exposure)
+                if total_cost_for_qty < 1.00:
+                    print(f"Insufficient risk-adjusted allocation for {symbol}.")
+                    continue
+                qty = round(total_cost_for_qty / current_price, 4)
 
-        # Log current conditions
-        print(f"{symbol}: Current price = ${current_price:.2f}, Previous price = ${previous_price:.2f}, Starting price to compare = ${price_decline_threshold:.2f}, Volume = {current_volume:.0f}, Recent Avg Volume = {recent_avg_volume:.0f}, Prior Avg Volume = {prior_avg_volume:.0f}, Recent Avg RSI = {recent_avg_rsi:.2f}, Prior Avg RSI = {prior_avg_rsi:.2f}, Allocation = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}, Score = {score}")
-        status_printer_buy_stocks()
+            # Estimate slippage
+            estimated_slippage = total_cost_for_qty * 0.001
+            total_cost_for_qty -= estimated_slippage
+            qty = round(total_cost_for_qty / current_price, 4)
+            print(f"{symbol}: Adjusted for slippage (0.1%): Notional = ${total_cost_for_qty:.2f}, Qty = {qty:.4f}")
 
         # Unified cash checks
+        with buy_sell_lock:
+            cash_available = round(float(api.get_account().cash), 2)
         if total_cost_for_qty < 1.00:
             print(f"Order amount for {symbol} is ${total_cost_for_qty:.2f}, below minimum $1.00")
             logging.info(f"{current_time_str} Did not buy {symbol} due to order amount below $1.00")
@@ -1007,7 +1012,7 @@ def buy_stocks(bought_stocks, symbols_to_buy, buy_sell_lock):
                             'Price Per Share': filled_price
                         })
                     stocks_to_remove.append((api_symbol, filled_price, today_date_str))
-                    if api.get_account().daytrade_count < 3:
+                    if api.get_account().daytrade_count < 3 and not ALL_BUY_ORDERS_ARE_1_DOLLAR:
                         stop_order_id = place_trailing_stop_sell_order(api_symbol, filled_qty, filled_price)
                         if stop_order_id:
                             print(f"Trailing stop sell order placed for {api_symbol} with ID: {stop_order_id}")
@@ -1079,7 +1084,7 @@ def place_trailing_stop_sell_order(symbol, qty, current_price):
         stop_loss_percent = 1.0
         stop_loss_price = current_price * (1 - stop_loss_percent / 100)
         print(f"Placing trailing stop sell order for {qty} shares of {symbol} "
-              f"with trail percent {stop_loss_percent}% (initial stop price: {stop_loss_price:.2f})")
+              f"with trail percent {stop_loss_percent}% (initial stop price: {stop_price:.2f})")
 
         stop_order = api.submit_order(
             symbol=symbol,
