@@ -59,7 +59,7 @@ fi
 echo "Installing Python dependencies..."
 pip3 install --no-cache-dir numpy
 pip3 install --no-cache-dir TA-Lib==0.6.4
-pip3 install --no-cache-dir alpaca-trade-api pytz yfinance sqlalchemy
+pip3 install --no-cache-dir alpaca-trade-api pytz yfinance sqlalchemy ratelimit
 
 # Step 7: Verify Python TA-Lib installation
 echo "Verifying Python TA-Lib installation..."

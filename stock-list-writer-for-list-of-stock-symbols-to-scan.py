@@ -9,6 +9,7 @@ import os
 import logging
 import concurrent.futures
 from collections import defaultdict
+from ratelimit import limits, sleep_and_retry
 
 # Configuration
 CONFIG = {
@@ -49,20 +50,35 @@ logging.basicConfig(
 # Set timezone
 eastern_timezone = pytz.timezone(CONFIG['timezone'])
 
+# Rate limit for individual API calls: 120 calls per minute (0.5 seconds per call)
+CALLS = 120
+PERIOD = 60
+
+
+@sleep_and_retry
+@limits(calls=CALLS, period=PERIOD)
 def fetch_sector(symbol):
-    """Fetch sector for a given stock symbol."""
+    """Fetch sector for a given stock symbol with rate limiting."""
     try:
         ticker = yf.Ticker(symbol)
-        return ticker.info.get('sector', 'Unknown')
+        sector = ticker.info.get('sector', 'Unknown')
+        logging.info(f"Fetched sector for {symbol}: {sector}")
+        return sector
     except Exception as e:
-        logging.warning(f"Failed to fetch sector for {symbol}: {e}")
+        if "429" in str(e):
+            logging.error(f"Rate limit exceeded for {symbol}: {e}")
+        else:
+            logging.warning(f"Failed to fetch sector for {symbol}: {e}")
         return 'Unknown'
 
+
+@sleep_and_retry
+@limits(calls=20, period=60)  # Limit to 20 batch downloads per minute
 def batch_download_data(stocks, start_date, end_date, retries=3):
     """Batch download historical data for all stocks with fallback to smaller batches."""
     valid_stocks = []
     invalid_stocks = []
-    
+
     for attempt in range(retries):
         try:
             data = yf.download(tickers=stocks, start=start_date, end=end_date, group_by='ticker', threads=True)
@@ -76,9 +92,10 @@ def batch_download_data(stocks, start_date, end_date, retries=3):
                 else:
                     invalid_stocks.append(stock)
                     logging.warning(f"Stock {stock} has no valid data; marked as invalid")
+            time.sleep(1)  # Delay after successful batch
             return data, valid_stocks, invalid_stocks
         except Exception as e:
-            logging.error(f"Batch download failed: {e}. Attempt {attempt+1}/{retries}")
+            logging.error(f"Batch download failed: {e}. Attempt {attempt + 1}/{retries}")
             if attempt < retries - 1:
                 time.sleep(5 * (2 ** attempt))  # Exponential backoff
 
@@ -87,11 +104,12 @@ def batch_download_data(stocks, start_date, end_date, retries=3):
     all_data = {}
     valid_stocks = []
     invalid_stocks = []
-    
+
     for i in range(0, len(stocks), CONFIG['batch_size_fallback']):
         batch_stocks = stocks[i:i + CONFIG['batch_size_fallback']]
         try:
-            batch_data = yf.download(tickers=batch_stocks, start=start_date, end=end_date, group_by='ticker', threads=True)
+            batch_data = yf.download(tickers=batch_stocks, start=start_date, end=end_date, group_by='ticker',
+                                     threads=True)
             for stock in batch_stocks:
                 stock_data = batch_data[stock] if stock in batch_data else pd.DataFrame()
                 if not stock_data.empty and stock_data['Close'].dropna().size > 0:
@@ -100,35 +118,37 @@ def batch_download_data(stocks, start_date, end_date, retries=3):
                 else:
                     invalid_stocks.append(stock)
                     logging.warning(f"Stock {stock} has no valid data in batch {i}")
-            time.sleep(2.5)  # Sleep 2.5 seconds per batch to avoid rate limits
+            time.sleep(2.5)  # Maintain delay in fallback
         except Exception as e:
             logging.error(f"Batch {i} failed: {e}")
-    
+
     return pd.concat(all_data, axis=1, keys=all_data.keys()), valid_stocks, invalid_stocks
+
 
 def validate_and_clean_data(data):
     """Validate and clean data to ensure numeric types and handle NaNs."""
     if data.empty:
         return None
-    
+
     # Ensure required columns exist
     required_columns = ['Close', 'High', 'Low', 'Volume']
     if not all(col in data.columns for col in required_columns):
         return None
-    
+
     # Convert to numeric, coercing errors to NaN
     data = data.copy()
     for col in required_columns:
         data[col] = pd.to_numeric(data[col], errors='coerce')
-    
+
     # Drop rows with any NaN in required columns
     data = data.dropna(subset=required_columns)
-    
+
     # Check if enough data remains
     if len(data) < max(CONFIG['rsi_period'], CONFIG['adx_period']):
         return None
-    
+
     return data
+
 
 def calculate_technical_indicators(data):
     """Calculate technical indicators using ta-lib on recent data."""
@@ -156,7 +176,10 @@ def calculate_technical_indicators(data):
 
         # VWAP
         typical_price = (high + low + close) / 3
-        indicators['vwap'] = talib.SMA(typical_price * volume, timeperiod=CONFIG['vwap_window']) / talib.SMA(volume, timeperiod=CONFIG['vwap_window'])
+        indicators['vwap'] = talib.SMA(typical_price * volume, timeperiod=CONFIG['vwap_window']) / talib.SMA(volume,
+                                                                                                             timeperiod=
+                                                                                                             CONFIG[
+                                                                                                                 'vwap_window'])
 
         # Bollinger Bands
         indicators['upper_band'], indicators['middle_band'], indicators['lower_band'] = talib.BBANDS(
@@ -165,7 +188,8 @@ def calculate_technical_indicators(data):
 
         # Stochastic Oscillator
         indicators['slowk'], indicators['slowd'] = talib.STOCH(
-            high, low, close, fastk_period=CONFIG['stochastic_k'], slowk_period=CONFIG['stochastic_d'], slowd_period=CONFIG['stochastic_d']
+            high, low, close, fastk_period=CONFIG['stochastic_k'], slowk_period=CONFIG['stochastic_d'],
+            slowd_period=CONFIG['stochastic_d']
         )
 
         # Volume analysis
@@ -181,6 +205,7 @@ def calculate_technical_indicators(data):
         logging.error(f"Error in calculate_technical_indicators: {e}")
         return None
 
+
 def calculate_seasonal_return(data, current_month, current_year):
     """Calculate average return for the current month over past years."""
     seasonal_returns = []
@@ -195,6 +220,7 @@ def calculate_seasonal_return(data, current_month, current_year):
             ret = (month_data['Close'].iloc[-1] - month_data['Close'].iloc[0]) / month_data['Close'].iloc[0]
             seasonal_returns.append(ret)
     return np.mean(seasonal_returns) if seasonal_returns else 0
+
 
 def calculate_historical_best_month(data, current_year):
     """Find the historical best-performing month averaged over past years."""
@@ -212,6 +238,7 @@ def calculate_historical_best_month(data, current_year):
                 monthly_returns[m].append(ret)
     avg_monthly = {m: np.mean(rets) for m, rets in monthly_returns.items() if rets}
     return max(avg_monthly, key=avg_monthly.get) if avg_monthly else None
+
 
 def calculate_stock_score(stock_symbol, stock_data, years_ago, current_month, current_year):
     """Calculate composite score with technical and seasonal factors."""
@@ -264,7 +291,7 @@ def calculate_stock_score(stock_symbol, stock_data, years_ago, current_month, cu
     if latest_close > indicators['upper_band'][-1]:
         score += 10  # Breakout above upper band
     elif latest_close < indicators['lower_band'][-1]:
-        score += 5   # Potential reversal from lower band
+        score += 5  # Potential reversal from lower band
 
     # Stochastic score
     if indicators['slowk'][-1] > indicators['slowd'][-1] and 20 < indicators['slowk'][-1] < 80:
@@ -301,6 +328,7 @@ def calculate_stock_score(stock_symbol, stock_data, years_ago, current_month, cu
         'lookback_years': years_ago
     }
 
+
 def process_stock(args):
     """Process a single stock (for parallel execution)."""
     stock_symbol, stock_data, years_ago, current_month, current_year = args
@@ -313,40 +341,69 @@ def process_stock(args):
         logging.error(f"Error processing {stock_symbol}: {e}")
         return None
 
+
 def main():
     start_time = time.time()
     logging.info("Starting stock scanner...")
 
     # Updated S&P 500 stock list as of August 11, 2025
     stocks = [
-        'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE', 'ALGN', 'ALLE',
-        'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AMTM', 'AEE', 'AEP', 'AXP', 'AIG', 'AMT', 'AWK', 'AMP', 'AME', 'AMGN',
-        'APH', 'ADI', 'AON', 'APA', 'AAPL', 'AMAT', 'APTV', 'ACGL', 'ADM', 'ANET', 'AJG', 'AIZ', 'T', 'ATO', 'ADSK', 'ADP',
-        'AZO', 'AVB', 'AVY', 'AXON', 'BKR', 'BALL', 'BAC', 'BAX', 'BDX', 'BRK-B', 'BBY', 'TECH', 'BIIB', 'BLK', 'BX', 'BK', 'BA',
-        'BKNG', 'BSX', 'BMY', 'AVGO', 'BR', 'BRO', 'BF-B', 'BLDR', 'BG', 'BXP', 'CHRW', 'CDNS', 'CZR', 'CPT', 'CPB', 'COF', 'CAH',
-        'KMX', 'CCL', 'CARR', 'CAT', 'CBOE', 'CBRE', 'CDW', 'CEG', 'CF', 'CFG', 'CHD', 'CI', 'CINF', 'CTAS', 'CSCO', 'C', 'CFG', 'CLX', 'CME', 'CMS', 'KO', 'CTSH', 'CL', 'CMCSA', 'CAG',
-        'COP', 'ED', 'STZ', 'COO', 'CPRT', 'GLW', 'CPAY', 'CTVA', 'CSGP', 'COST', 'CTRA', 'CRWD', 'CCI', 'CSX', 'CMI', 'CVS',
-        'DHR', 'DRI', 'DVA', 'DAY', 'DECK', 'DE', 'DELL', 'DAL', 'DVN', 'DXCM', 'FANG', 'DLR', 'DG', 'DLTR', 'D', 'DPZ', 'DOV',
-        'DOW', 'DHI', 'DTE', 'DUK', 'DD', 'EMN', 'ETN', 'EBAY', 'ECL', 'EIX', 'EW', 'EA', 'ELV', 'EMR', 'ENPH', 'ETR', 'EOG', 'EPAM',
-        'EQT', 'EFX', 'EQIX', 'EQR', 'ERIE', 'ESS', 'EL', 'EG', 'EVRG', 'ES', 'EXC', 'EXPE', 'EXPD', 'EXR', 'XOM', 'FFIV', 'FDS',
-        'FICO', 'FAST', 'FRT', 'FDX', 'FIS', 'FITB', 'FSLR', 'FE', 'FI', 'F', 'FTNT', 'FTV', 'FOXA', 'FOX', 'BEN', 'FCX',
-        'GRMN', 'IT', 'GE', 'GEHC', 'GEV', 'GEN', 'GNRC', 'GD', 'GIS', 'GM', 'GPC', 'GILD', 'GPN', 'GL', 'GDDY', 'GS', 'HAL', 'HIG',
-        'HAS', 'HCA', 'DOC', 'HSIC', 'HSY', 'HPE', 'HLT', 'HOLX', 'HD', 'HON', 'HRL', 'HST', 'HWM', 'HPQ', 'HUBB', 'HUM',
-        'HBAN', 'HII', 'IBM', 'IEX', 'IDXX', 'ITW', 'INCY', 'IR', 'PODD', 'INTC', 'ICE', 'IFF', 'IP', 'IPG', 'INTU', 'ISRG', 'IVZ',
-        'INVH', 'IQV', 'IRM', 'JBHT', 'JBL', 'JKHY', 'J', 'JNJ', 'JCI', 'JPM', 'JNPR', 'K', 'KVUE', 'KDP', 'KEY', 'KEYS', 'KMB',
-        'KIM', 'KMI', 'KKR', 'KLAC', 'KHC', 'KR', 'LHX', 'LH', 'LRCX', 'LW', 'LVS', 'LDOS', 'LEN', 'LLY', 'LIN', 'LYV', 'LKQ', 'LMT',
-        'L', 'LOW', 'LULU', 'LYB', 'MTB', 'MPC', 'MKTX', 'MAR', 'MMC', 'MLM', 'MAS', 'MA', 'MTCH', 'MKC', 'MCD', 'MCK', 'MDT',
-        'MRK', 'META', 'MET', 'MTD', 'MGM', 'MCHP', 'MU', 'MSFT', 'MAA', 'MRNA', 'MHK', 'MOH', 'TAP', 'MDLZ', 'MPWR', 'MNST', 'MCO',
-        'MS', 'MOS', 'MSI', 'MSCI', 'NDAQ', 'NTAP', 'NFLX', 'NEM', 'NWSA', 'NWS', 'NEE', 'NKE', 'NI', 'NDSN', 'NSC', 'NTRS', 'NOC',
-        'NCLH', 'NRG', 'NUE', 'NVDA', 'NVR', 'NXPI', 'ORLY', 'OXY', 'ODFL', 'OMC', 'ON', 'OKE', 'ORCL', 'OTIS', 'PCAR', 'PKG', 'PLTR',
-        'PANW', 'PARA', 'PH', 'PAYX', 'PAYC', 'PYPL', 'PNR', 'PEP', 'PFE', 'PCG', 'PM', 'PSX', 'PNW', 'PNC', 'POOL', 'PPG', 'PPL',
-        'PFG', 'PG', 'PGR', 'PLD', 'PRU', 'PEG', 'PTC', 'PSA', 'PHM', 'QRVO', 'PWR', 'QCOM', 'DGX', 'RL', 'RJF', 'RTX', 'O', 'REG',
-        'REGN', 'RF', 'RSG', 'RMD', 'RVTY', 'ROK', 'ROL', 'ROP', 'ROST', 'RCL', 'SPGI', 'CRM', 'SBAC', 'SLB', 'STX', 'SRE', 'NOW',
-        'SHW', 'SPG', 'SWKS', 'SJM', 'SW', 'SNA', 'SOLV', 'SO', 'LUV', 'SWK', 'SBUX', 'STT', 'STLD', 'STE', 'SYK', 'SMCI', 'SYF',
-        'SNPS', 'SYY', 'TMUS', 'TROW', 'TTWO', 'TPR', 'TRGP', 'TGT', 'TEL', 'TDY', 'TER', 'TSLA', 'TXN', 'TXT', 'TMO', 'TJX',
-        'TSCO', 'TT', 'TDG', 'TRV', 'TRMB', 'TFC', 'TYL', 'TSN', 'USB', 'UBER', 'UDR', 'ULTA', 'UNP', 'UAL', 'UPS', 'URI', 'UNH',
-        'UHS', 'VLO', 'VTR', 'VLTO', 'VRSN', 'VRSK', 'VZ', 'VRTX', 'VTRS', 'VICI', 'V', 'VST', 'VMC', 'WRB', 'GWW', 'WAB', 'WBA',
-        'WMT', 'DIS', 'WBD', 'WM', 'WAT', 'WEC', 'WFC', 'WELL', 'WST', 'WDC', 'WY', 'WMB', 'WTW', 'WYNN', 'XEL', 'XYL', 'YUM',
+        'MMM', 'AOS', 'ABT', 'ABBV', 'ACN', 'ADBE', 'AMD', 'AES', 'AFL', 'A', 'APD', 'ABNB', 'AKAM', 'ALB', 'ARE',
+        'ALGN', 'ALLE',
+        'LNT', 'ALL', 'GOOGL', 'GOOG', 'MO', 'AMZN', 'AMCR', 'AMTM', 'AEE', 'AEP', 'AXP', 'AIG', 'AMT', 'AWK', 'AMP',
+        'AME', 'AMGN',
+        'APH', 'ADI', 'AON', 'APA', 'AAPL', 'AMAT', 'APTV', 'ACGL', 'ADM', 'ANET', 'AJG', 'AIZ', 'T', 'ATO', 'ADSK',
+        'ADP',
+        'AZO', 'AVB', 'AVY', 'AXON', 'BKR', 'BALL', 'BAC', 'BAX', 'BDX', 'BRK-B', 'BBY', 'TECH', 'BIIB', 'BLK', 'BX',
+        'BK', 'BA',
+        'BKNG', 'BSX', 'BMY', 'AVGO', 'BR', 'BRO', 'BF-B', 'BLDR', 'BG', 'BXP', 'CHRW', 'CDNS', 'CZR', 'CPT', 'CPB',
+        'COF', 'CAH',
+        'KMX', 'CCL', 'CARR', 'CAT', 'CBOE', 'CBRE', 'CDW', 'CEG', 'CF', 'CFG', 'CHD', 'CI', 'CINF', 'CTAS', 'CSCO',
+        'C', 'CFG', 'CLX', 'CME', 'CMS', 'KO', 'CTSH', 'CL', 'CMCSA', 'CAG',
+        'COP', 'ED', 'STZ', 'COO', 'CPRT', 'GLW', 'CPAY', 'CTVA', 'CSGP', 'COST', 'CTRA', 'CRWD', 'CCI', 'CSX', 'CMI',
+        'CVS',
+        'DHR', 'DRI', 'DVA', 'DAY', 'DECK', 'DE', 'DELL', 'DAL', 'DVN', 'DXCM', 'FANG', 'DLR', 'DG', 'DLTR', 'D', 'DPZ',
+        'DOV',
+        'DOW', 'DHI', 'DTE', 'DUK', 'DD', 'EMN', 'ETN', 'EBAY', 'ECL', 'EIX', 'EW', 'EA', 'ELV', 'EMR', 'ENPH', 'ETR',
+        'EOG', 'EPAM',
+        'EQT', 'EFX', 'EQIX', 'EQR', 'ERIE', 'ESS', 'EL', 'EG', 'EVRG', 'ES', 'EXC', 'EXPE', 'EXPD', 'EXR', 'XOM',
+        'FFIV', 'FDS',
+        'FICO', 'FAST', 'FRT', 'FDX', 'FIS', 'FITB', 'FSLR', 'FE', 'FI', 'F', 'FTNT', 'FTV', 'FOXA', 'FOX', 'BEN',
+        'FCX',
+        'GRMN', 'IT', 'GE', 'GEHC', 'GEV', 'GEN', 'GNRC', 'GD', 'GIS', 'GM', 'GPC', 'GILD', 'GPN', 'GL', 'GDDY', 'GS',
+        'HAL', 'HIG',
+        'HAS', 'HCA', 'DOC', 'HSIC', 'HSY', 'HPE', 'HLT', 'HOLX', 'HD', 'HON', 'HRL', 'HST', 'HWM', 'HPQ', 'HUBB',
+        'HUM',
+        'HBAN', 'HII', 'IBM', 'IEX', 'IDXX', 'ITW', 'INCY', 'IR', 'PODD', 'INTC', 'ICE', 'IFF', 'IP', 'IPG', 'INTU',
+        'ISRG', 'IVZ',
+        'INVH', 'IQV', 'IRM', 'JBHT', 'JBL', 'JKHY', 'J', 'JNJ', 'JCI', 'JPM', 'JNPR', 'K', 'KVUE', 'KDP', 'KEY',
+        'KEYS', 'KMB',
+        'KIM', 'KMI', 'KKR', 'KLAC', 'KHC', 'KR', 'LHX', 'LH', 'LRCX', 'LW', 'LVS', 'LDOS', 'LEN', 'LLY', 'LIN', 'LYV',
+        'LKQ', 'LMT',
+        'L', 'LOW', 'LULU', 'LYB', 'MTB', 'MPC', 'MKTX', 'MAR', 'MMC', 'MLM', 'MAS', 'MA', 'MTCH', 'MKC', 'MCD', 'MCK',
+        'MDT',
+        'MRK', 'META', 'MET', 'MTD', 'MGM', 'MCHP', 'MU', 'MSFT', 'MAA', 'MRNA', 'MHK', 'MOH', 'TAP', 'MDLZ', 'MPWR',
+        'MNST', 'MCO',
+        'MS', 'MOS', 'MSI', 'MSCI', 'NDAQ', 'NTAP', 'NFLX', 'NEM', 'NWSA', 'NWS', 'NEE', 'NKE', 'NI', 'NDSN', 'NSC',
+        'NTRS', 'NOC',
+        'NCLH', 'NRG', 'NUE', 'NVDA', 'NVR', 'NXPI', 'ORLY', 'OXY', 'ODFL', 'OMC', 'ON', 'OKE', 'ORCL', 'OTIS', 'PCAR',
+        'PKG', 'PLTR',
+        'PANW', 'PARA', 'PH', 'PAYX', 'PAYC', 'PYPL', 'PNR', 'PEP', 'PFE', 'PCG', 'PM', 'PSX', 'PNW', 'PNC', 'POOL',
+        'PPG', 'PPL',
+        'PFG', 'PG', 'PGR', 'PLD', 'PRU', 'PEG', 'PTC', 'PSA', 'PHM', 'QRVO', 'PWR', 'QCOM', 'DGX', 'RL', 'RJF', 'RTX',
+        'O', 'REG',
+        'REGN', 'RF', 'RSG', 'RMD', 'RVTY', 'ROK', 'ROL', 'ROP', 'ROST', 'RCL', 'SPGI', 'CRM', 'SBAC', 'SLB', 'STX',
+        'SRE', 'NOW',
+        'SHW', 'SPG', 'SWKS', 'SJM', 'SW', 'SNA', 'SOLV', 'SO', 'LUV', 'SWK', 'SBUX', 'STT', 'STLD', 'STE', 'SYK',
+        'SMCI', 'SYF',
+        'SNPS', 'SYY', 'TMUS', 'TROW', 'TTWO', 'TPR', 'TRGP', 'TGT', 'TEL', 'TDY', 'TER', 'TSLA', 'TXN', 'TXT', 'TMO',
+        'TJX',
+        'TSCO', 'TT', 'TDG', 'TRV', 'TRMB', 'TFC', 'TYL', 'TSN', 'USB', 'UBER', 'UDR', 'ULTA', 'UNP', 'UAL', 'UPS',
+        'URI', 'UNH',
+        'UHS', 'VLO', 'VTR', 'VLTO', 'VRSN', 'VRSK', 'VZ', 'VRTX', 'VTRS', 'VICI', 'V', 'VST', 'VMC', 'WRB', 'GWW',
+        'WAB', 'WBA',
+        'WMT', 'DIS', 'WBD', 'WM', 'WAT', 'WEC', 'WFC', 'WELL', 'WST', 'WDC', 'WY', 'WMB', 'WTW', 'WYNN', 'XEL', 'XYL',
+        'YUM',
         'ZBRA', 'ZBH', 'ZTS', 'TTD', 'COIN', 'DASH', 'TKO', 'WSM', 'EXE', 'APO'
     ]
 
@@ -374,7 +431,8 @@ def main():
     stock_scores = []
     for years_ago in CONFIG['lookback_years']:
         with concurrent.futures.ThreadPoolExecutor(max_workers=CONFIG['max_workers']) as executor:
-            args_list = [(stock, all_stocks_data.get(stock, pd.DataFrame()), years_ago, current_month, current_year) for stock in valid_stocks]
+            args_list = [(stock, all_stocks_data.get(stock, pd.DataFrame()), years_ago, current_month, current_year) for
+                         stock in valid_stocks]
             future_to_stock = {executor.submit(process_stock, args): args[0] for args in args_list}
             for future in concurrent.futures.as_completed(future_to_stock):
                 result = future.result()
@@ -382,7 +440,7 @@ def main():
                     stock_scores.append(result)
 
     # Add sector information to scores
-    with concurrent.futures.ThreadPoolExecutor(max_workers=CONFIG['max_workers']) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:  # Reduced for rate limiting
         sector_results = {executor.submit(fetch_sector, score['symbol']): score for score in stock_scores}
         for future in concurrent.futures.as_completed(sector_results):
             score = sector_results[future]
@@ -397,7 +455,7 @@ def main():
         'Energy', 'Oil & Gas', 'Natural Gas', 'Utilities', 'Electricity',
         'Basic Materials', 'Financial Services', 'Financials', 'Banks', 'Insurance',
         'Consumer Cyclical', 'Healthcare', 'Medical Devices', 'Biotechnology',
-        'Pharmaceuticals', 'Real Estate', 'Consumer Defensive', 'Communication Services' 
+        'Pharmaceuticals', 'Real Estate', 'Consumer Defensive', 'Communication Services'
     ]
 
     # Sort and select top stocks with sector limit
@@ -419,7 +477,8 @@ def main():
     # Generate and print table of top stocks
     if top_stocks:
         df = pd.DataFrame(top_stocks)
-        df = df[['symbol', 'sector', 'score', 'price_increase', 'rsi', 'macd_bullish', 'volume_ratio', 'adx', 'obv_increasing', 'seasonal_return', 'best_month_match', 'lookback_years']]
+        df = df[['symbol', 'sector', 'score', 'price_increase', 'rsi', 'macd_bullish', 'volume_ratio', 'adx',
+                 'obv_increasing', 'seasonal_return', 'best_month_match', 'lookback_years']]
         print("\nTop Performing Stocks Table:")
         print(df.to_string(index=False))
 
@@ -438,6 +497,7 @@ def main():
     logging.info(f"Next run scheduled at: {next_run_time}")
     print(f"Next run scheduled at: {next_run_time}")
     time.sleep(time_difference)
+
 
 if __name__ == "__main__":
     while True:
