@@ -452,11 +452,12 @@ def main():
 
     # Define sectors to exclude
     excluded_sectors = [
-        'Energy', 'Oil & Gas', 'Natural Gas', 'Utilities', 'Electricity',
-        'Basic Materials', 'Financial Services', 'Financials', 'Banks', 'Insurance',
-        'Consumer Cyclical', 'Healthcare', 'Medical Devices', 'Biotechnology',
-        'Pharmaceuticals', 'Real Estate', 'Consumer Defensive', 'Communication Services'
-    ]
+    'Energy', 'Oil & Gas', 'Natural Gas', 'Utilities', 'Electricity',
+    'Basic Materials', 'Financial Services', 'Financials', 'Banks', 'Insurance',
+    'Consumer Cyclical', 'Consumer Discretionary', 'Healthcare', 'Medical Devices',
+    'Biotechnology', 'Pharmaceuticals', 'Real Estate', 'Consumer Defensive',
+    'Communication Services', 'Industrials'
+]
 
     # Sort and select top stocks with sector limit
     df_scores = pd.DataFrame(stock_scores)
