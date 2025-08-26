@@ -12,12 +12,21 @@ def get_current_time():
 
 def copy_stock_symbols(source_file, destination_file):
     try:
-        # Delete the destination file before copying
-        if os.path.exists(destination_file):
-            os.remove(destination_file)
+        # Read source file and ensure unique symbols
+        unique_symbols = set()
+        if os.path.exists(source_file):
+            with open(source_file, 'r') as src:
+                for line in src:
+                    symbol = line.strip()
+                    if symbol:  # Only add non-empty lines
+                        unique_symbols.add(symbol)
         
-        shutil.copyfile(source_file, destination_file)
-        print("Stock symbols copied successfully.")
+        # Write unique symbols to destination file
+        with open(destination_file, 'w') as dest:
+            for symbol in unique_symbols:
+                dest.write(symbol + '\n')
+                
+        print(f"Successfully wrote {len(unique_symbols)} unique stock symbols.")
     except Exception as e:
         print("Error:", e)
 
