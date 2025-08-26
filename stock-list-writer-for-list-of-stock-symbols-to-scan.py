@@ -457,7 +457,7 @@ def main():
     'Consumer Cyclical', 'Consumer Discretionary', 'Healthcare', 'Medical Devices',
     'Biotechnology', 'Pharmaceuticals', 'Real Estate', 'Consumer Defensive',
     'Communication Services', 'Industrials'
-]
+    ]
 
     # Sort and select top stocks with sector limit
     df_scores = pd.DataFrame(stock_scores)
