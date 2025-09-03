@@ -1049,6 +1049,8 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
             reason = f"bullish reversal ({', '.join(detected_patterns)}), {specific_reason}"
             print(f"Submitting buy order for {api_symbols}...")
             try:
+                # Ensure notional value is rounded to 2 decimal places
+                total_cost_for_qty = round(total_cost_for_qty, 2)
                 buy_order = api.submit_order(
                     symbol=api_symbols,
                     notional=total_cost_for_qty,
