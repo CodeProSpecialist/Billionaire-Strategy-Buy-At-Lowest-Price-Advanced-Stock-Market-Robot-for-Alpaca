@@ -1024,7 +1024,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
                     if latest_rsi < 40:
                         score += 1
 
-            if score >= 3:
+            if score >= 4:
                 buy_conditions_met = True
                 specific_reason = f"Score: {score}, patterns: {', '.join(detected_patterns)}"
 
