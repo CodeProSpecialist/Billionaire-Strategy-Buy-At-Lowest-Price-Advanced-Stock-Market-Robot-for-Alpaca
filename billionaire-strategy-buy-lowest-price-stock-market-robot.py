@@ -20,6 +20,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from ratelimit import limits, sleep_and_retry
 import pandas_market_calendars as mcal
 
+# ANSI color codes for terminal output
+GREEN = "\033[92m"
+RED = "\033[91m"
+RESET = "\033[0m"
+
 # Load environment variables for Alpaca API
 APIKEYID = os.getenv('APCA_API_KEY_ID')
 APISECRETKEY = os.getenv('APCA_API_SECRET_KEY')
@@ -39,6 +44,7 @@ PRINT_ROBOT_STORED_BUY_AND_SELL_LIST_DATABASE = True  # Set to True to view data
 PRINT_DATABASE = True  # Set to True to view stocks to sell
 DEBUG = False  # Set to False for faster execution
 ALL_BUY_ORDERS_ARE_1_DOLLAR = False  # When True, every buy order is a $1.00 fractional share market day order
+FRACTIONAL_BUY_ORDERS = True  # Enable fractional share orders
 
 # Set the timezone to Eastern
 eastern = pytz.timezone('US/Eastern')
@@ -211,8 +217,9 @@ def print_database_tables():
                 current_price = get_current_price(symbols_to_sell)
                 percentage_change = ((
                                                  current_price - avg_price) / avg_price) * 100 if current_price and avg_price else 0
+                color = GREEN if percentage_change >= 0 else RED
                 print(
-                    f"{symbols_to_sell} | {quantity:.4f} | {avg_price:.2f} | {purchase_date_str} | Price Change: {percentage_change:.2f}%")
+                    f"{symbols_to_sell} | {quantity:.4f} | {avg_price:.2f} | {purchase_date_str} | Price Change: {color}{percentage_change:.2f}%{RESET}")
             else:
                 print(f"{symbols_to_sell} | {quantity:.4f} | {avg_price:.2f} | {purchase_date_str}")
         print("\n")
@@ -584,12 +591,12 @@ def track_price_changes(symbols):
 
     if current_price > previous_price:
         price_changes[symbols]['increased'] += 1
-        print(f"{symbols} price just increased | current price: {current_price}")
+        print(f"{symbols} price just increased | current price: {GREEN}${current_price:.2f}{RESET}")
     elif current_price < previous_price:
         price_changes[symbols]['decreased'] += 1
-        print(f"{symbols} price just decreased | current price: {current_price}")
+        print(f"{symbols} price just decreased | current price: {RED}${current_price:.2f}{RESET}")
     else:
-        print(f"{symbols} price has not changed | current price: {current_price}")
+        print(f"{symbols} price has not changed | current price: ${current_price:.2f}")
     update_previous_price(symbols, current_price)
 
 def end_time_reached():
@@ -765,27 +772,58 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
 
         # Get historical data for volume, RSI, and candlesticks
         yf_symbol = symbols_to_buy.replace('.', '-')  # Adjust for yfinance compatibility
-        print(f"Fetching 5-day 5-minute historical data for {yf_symbol}...")
-        stock_data = yf.Ticker(yf_symbol)
-        historical_data = stock_data.history(period='5d', interval='5m', prepost=True)
-        if historical_data.empty or len(historical_data) < 3:
-            print(f"Insufficient historical data for {symbols_to_buy} (rows: {len(historical_data)}). Skipping.")
-            logging.info(f"Insufficient historical data for {symbols_to_buy} (rows: {len(historical_data)}).")
+        print(f"Fetching 20-day historical data for {yf_symbol}...")
+        df = yf.Ticker(yf_symbol).history(period="20d")
+        if df.empty or len(df) < 3:
+            print(f"Insufficient historical data for {symbols_to_buy} (rows: {len(df)}). Skipping.")
+            logging.info(f"Insufficient historical data for {symbols_to_buy} (rows: {len(df)}).")
+            continue
+
+        # --- Score calculation ---
+        score = 0
+        close = df['Close'].values
+        open_ = df['Open'].values
+        high = df['High'].values
+        low = df['Low'].values
+
+        # Candlestick bullish reversal patterns
+        bullish_patterns = [
+            talib.CDLHAMMER, talib.CDLHANGINGMAN, talib.CDLENGULFING,
+            talib.CDLPIERCING, talib.CDLMORNINGSTAR, talib.CDLINVERTEDHAMMER,
+            talib.CDLDRAGONFLYDOJI
+        ]
+        for f in bullish_patterns:
+            res = f(open_, high, low, close)
+            if res[-1] > 0:
+                score += 1
+                break
+
+        # RSI decrease
+        rsi = talib.RSI(close)
+        if rsi[-1] < 50:
+            score += 1
+
+        # Price decrease 0.3%
+        if close[-1] <= close[-2] * 0.997:
+            score += 1
+
+        if score < 3:
+            print(f"{yf_symbol}: Score too low ({score} < 3). Skipping.")
+            logging.info(f"{yf_symbol}: Score too low ({score} < 3). Skipping.")
             continue
 
         # Calculate volume decrease
         print(f"Calculating volume metrics for {symbols_to_buy}...")
-        recent_avg_volume = historical_data['Volume'].iloc[-5:].mean() if len(historical_data) >= 5 else 0
-        prior_avg_volume = historical_data['Volume'].iloc[-10:-5].mean() if len(
-            historical_data) >= 10 else recent_avg_volume
-        volume_decrease = recent_avg_volume < prior_avg_volume if len(historical_data) >= 10 else False
-        current_volume = historical_data['Volume'].iloc[-1]
+        recent_avg_volume = df['Volume'].iloc[-5:].mean() if len(df) >= 5 else 0
+        prior_avg_volume = df['Volume'].iloc[-10:-5].mean() if len(df) >= 10 else recent_avg_volume
+        volume_decrease = recent_avg_volume < prior_avg_volume if len(df) >= 10 else False
+        current_volume = df['Volume'].iloc[-1]
         print(
             f"{yf_symbol}: Recent avg volume = {recent_avg_volume:.0f}, Prior avg volume = {prior_avg_volume:.0f}, Volume decrease = {volume_decrease}")
 
         # Calculate RSI decrease
         print(f"Calculating RSI metrics for {symbols_to_buy}...")
-        close_prices = historical_data['Close'].values
+        close_prices = df['Close'].values
         rsi_series = talib.RSI(close_prices, timeperiod=14)
         rsi_decrease = False
         latest_rsi = rsi_series[-1] if len(rsi_series) > 0 else None
@@ -822,7 +860,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
         previous_price = get_previous_price(symbols_to_buy)
         price_increase = current_price > previous_price * 1.005
         print(
-            f"{yf_symbol}: Price increase check: Current = ${current_price:.2f}, Previous = ${previous_price:.2f}, Increase = {price_increase}")
+            f"{yf_symbol}: Price increase check: Current = {GREEN if current_price > previous_price else RED}${current_price:.2f}{RESET}, Previous = ${previous_price:.2f}, Increase = {price_increase}")
 
         # Check price drop
         print(f"Checking price drop for {symbols_to_buy}...")
@@ -830,7 +868,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
         last_price = last_prices.get(symbols_to_buy)
         if last_price is None:
             try:
-                last_price = round(float(stock_data.history(period='1d')['Close'].iloc[-1].item()), 4)
+                last_price = round(float(df['Close'].iloc[-1].item()), 4)
                 print(f"No price found for {yf_symbol} in past 5 minutes. Using last closing price: {last_price}")
                 logging.info(f"No price found for {yf_symbol} in past 5 minutes. Using last closing price: {last_price}")
             except Exception as e:
@@ -841,7 +879,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
         price_decline_threshold = last_price * (1 - 0.002)
         price_decline = current_price <= price_decline_threshold
         print(
-            f"{yf_symbol}: Price decline check: Current = ${current_price:.2f}, Threshold = ${price_decline_threshold:.2f}, Decline = {price_decline}")
+            f"{yf_symbol}: Price decline check: Current = {GREEN if current_price > previous_price else RED}${current_price:.2f}{RESET}, Threshold = ${price_decline_threshold:.2f}, Decline = {price_decline}")
 
         # Calculate short-term price trend
         short_term_trend = None
@@ -853,16 +891,16 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
 
         # Detect bullish reversal candlestick patterns
         print(f"Checking for bullish reversal patterns in {symbols_to_buy}...")
-        open_prices = historical_data['Open'].values
-        high_prices = historical_data['High'].values
-        low_prices = historical_data['Low'].values
-        close_prices = historical_data['Close'].values
+        open_prices = df['Open'].values
+        high_prices = df['High'].values
+        low_prices = df['Low'].values
+        close_prices = df['Close'].values
 
         bullish_reversal_detected = False
         reversal_candle_index = None
         detected_patterns = []
         for i in range(-1, -21, -1):
-            if len(historical_data) < abs(i):
+            if len(df) < abs(i):
                 continue
             try:
                 patterns = {
@@ -910,19 +948,19 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
                         logging.info(f"{yf_symbol}: Price history at {interval}: {prices[-5:]}")
         if price_decline:
             print(
-                f"{yf_symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+                f"{yf_symbol}: Price decline >= 0.2% detected (Current price = {GREEN if current_price > previous_price else RED}${current_price:.2f}{RESET}, Threshold = ${price_decline_threshold:.2f})")
             logging.info(
-                f"{yf_symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f} <= Threshold = {price_decline_threshold:.2f})")
+                f"{yf_symbol}: Price decline >= 0.2% detected (Current price = {current_price:.2f}, Threshold = {price_decline_threshold:.2f})")
         if volume_decrease:
             print(
-                f"{yf_symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
+                f"{yf_symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f}, Prior avg = {prior_avg_volume:.0f})")
             logging.info(
-                f"{yf_symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f} < Prior avg = {prior_avg_volume:.0f})")
+                f"{yf_symbol}: Volume decrease detected (Recent avg = {recent_avg_volume:.0f}, Prior avg = {prior_avg_volume:.0f})")
         if rsi_decrease:
             print(
-                f"{yf_symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
+                f"{yf_symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f}, Prior avg = {prior_avg_rsi:.2f})")
             logging.info(
-                f"{yf_symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f} < Prior avg = {prior_avg_rsi:.2f})")
+                f"{yf_symbol}: RSI decrease detected (Recent avg = {recent_avg_rsi:.2f}, Prior avg = {prior_avg_rsi:.2f})")
 
         # Add trend filter
         if not is_in_uptrend(symbols_to_buy):
@@ -940,7 +978,6 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
         # Pattern-specific buy conditions with scoring
         buy_conditions_met = False
         specific_reason = ""
-        score = 0
         if bullish_reversal_detected:
             score += 2
             price_stable = True
@@ -1059,7 +1096,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
                     time_in_force='day'
                 )
                 print(
-                    f"{current_time_str}, Submitted buy order for {qty:.4f} shares of {api_symbols} at {current_price:.2f} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
+                    f"{current_time_str}, Submitted buy order for {qty:.4f} shares of {api_symbols} at {GREEN if current_price > previous_price else RED}${current_price:.2f}{RESET} (notional: ${total_cost_for_qty:.2f}) due to {reason}")
                 logging.info(
                     f"{current_time_str} Submitted buy {qty:.4f} shares of {api_symbols} due to {reason}. RSI Decrease={rsi_decrease}, Volume Decrease={volume_decrease}, Bullish Reversal={bullish_reversal_detected}, Price Decline >= 0.2%={price_decline}")
 
@@ -1077,7 +1114,7 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
                             cash_available = round(float(api.get_account().cash), 2)
                         actual_cost = filled_qty * filled_price
                         print(
-                            f"Order filled for {filled_qty:.4f} shares of {api_symbols} at ${filled_price:.2f}, actual cost: ${actual_cost:.2f}")
+                            f"Order filled for {filled_qty:.4f} shares of {api_symbols} at {GREEN if filled_price > previous_price else RED}${filled_price:.2f}{RESET}, actual cost: ${actual_cost:.2f}")
                         logging.info(
                             f"Order filled for {filled_qty:.4f} shares of {api_symbols}, actual cost: ${actual_cost:.2f}")
                         break
@@ -1273,7 +1310,7 @@ def sell_stocks(symbols_to_sell_dict, buy_sell_lock):
 
                 sell_threshold = bought_price * 1.005
                 print(
-                    f"{symbols_to_sell}: Current price = {current_price:.2f}, Bought price = {bought_price:.2f}, Sell threshold = {sell_threshold:.2f}")
+                    f"{symbols_to_sell}: Current price = {GREEN if current_price >= sell_threshold else RED}${current_price:.2f}{RESET}, Bought price = ${bought_price:.2f}, Sell threshold = ${sell_threshold:.2f}")
                 logging.info(
                     f"{symbols_to_sell}: Current price = {current_price:.2f}, Bought price = {bought_price:.2f}, Sell threshold = {sell_threshold:.2f}")
 
@@ -1287,7 +1324,7 @@ def sell_stocks(symbols_to_sell_dict, buy_sell_lock):
                         time_in_force='day'
                     )
                     print(
-                        f" {current_time_str}, Sold {qty:.4f} shares of {symbols_to_sell} at {current_price:.2f} based on a higher selling price.")
+                        f" {current_time_str}, Sold {qty:.4f} shares of {symbols_to_sell} at {GREEN if current_price >= sell_threshold else RED}${current_price:.2f}{RESET} based on a higher selling price.")
                     logging.info(f"{current_time_str} Sold {qty:.4f} shares of {symbols_to_sell} at {current_price:.2f}.")
 
                     with open(csv_filename, mode='a', newline='') as csv_file:
@@ -1302,7 +1339,7 @@ def sell_stocks(symbols_to_sell_dict, buy_sell_lock):
                     symbols_to_remove.append((symbols_to_sell, qty, current_price))
                 else:
                     print(
-                        f"{symbols_to_sell}: Price condition not met. Current price ({current_price:.2f}) < Sell threshold ({sell_threshold:.2f})")
+                        f"{symbols_to_sell}: Price condition not met. Current price ({GREEN if current_price >= sell_threshold else RED}${current_price:.2f}{RESET}) < Sell threshold (${sell_threshold:.2f})")
                     logging.info(
                         f"{symbols_to_sell}: Price condition not met. Current price ({current_price:.2f}) < Sell threshold ({sell_threshold:.2f})")
             except Exception as e:
@@ -1408,7 +1445,7 @@ def main():
                 print("\n")
                 for symbols_to_buy in symbols_to_buy:
                     current_price = get_current_price(symbols_to_buy)
-                    print(f"Symbol: {symbols_to_buy} | Current Price: {current_price} ")
+                    print(f"Symbol: {symbols_to_buy} | Current Price: {GREEN if current_price > get_previous_price(symbols_to_buy) else RED}${current_price:.2f}{RESET} ")
                 print("\n")
                 print("------------------------------------------------------------------------------------")
                 print("\n")
@@ -1426,7 +1463,7 @@ def main():
                     current_price = get_current_price(symbols_to_buy)
                     atr_low_price = get_atr_low_price(symbols_to_buy)
                     print(
-                        f"Symbol: {symbols_to_buy} | Current Price: {current_price} | ATR low buy signal price: {atr_low_price}")
+                        f"Symbol: {symbols_to_buy} | Current Price: {GREEN if current_price > get_previous_price(symbols_to_buy) else RED}${current_price:.2f}{RESET} | ATR low buy signal price: ${atr_low_price:.2f}")
                 print("\n")
                 print("------------------------------------------------------------------------------------")
                 print("\n")
@@ -1436,7 +1473,7 @@ def main():
                     current_price = get_current_price(symbols_to_sell)
                     atr_high_price = get_atr_high_price(symbols_to_sell)
                     print(
-                        f"Symbol: {symbols_to_sell} | Current Price: {current_price} | ATR high sell signal profit price: {atr_high_price}")
+                        f"Symbol: {symbols_to_sell} | Current Price: {GREEN if current_price > get_previous_price(symbols_to_sell) else RED}${current_price:.2f}{RESET} | ATR high sell signal profit price: ${atr_high_price:.2f}")
                 print("\n")
 
             print("Waiting 1 minute before checking price data again........")
