@@ -1029,8 +1029,8 @@ def buy_stocks(symbols_to_sell_dict, symbols_to_buy_list, buy_sell_lock):
                 specific_reason = f"Score: {score}, patterns: {', '.join(detected_patterns)}"
 
         if not buy_conditions_met:
-            print(f"{yf_symbol}: Buy score too low ({score} < 3). Skipping.")
-            logging.info(f"{yf_symbol}: Buy score too low ({score} < 3). Skipping.")
+            print(f"{yf_symbol}: Buy score too low ({score} < 4). Skipping.")
+            logging.info(f"{yf_symbol}: Buy score too low ({score} < 4). Skipping.")
             continue
 
         # Determine position sizing
