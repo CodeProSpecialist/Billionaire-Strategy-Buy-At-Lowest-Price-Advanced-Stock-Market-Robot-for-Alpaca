@@ -97,7 +97,8 @@ pip3 install --no-cache-dir \
     sqlalchemy \
     ratelimit \
     schedule \
-    pandas_market_calendars
+    pandas_market_calendars \
+    backtrader
 
 # ---------------------------------------------------------------------------
 # Step 4: TensorFlow -- required for the ML brain. CPU-only build unless the
