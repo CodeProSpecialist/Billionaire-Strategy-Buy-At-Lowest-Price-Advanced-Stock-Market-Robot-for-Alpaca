@@ -1,7 +1,3 @@
-Here's an updated README that reflects the new in-memory scanner integration, the true VWAP work, and the resulting single-command run:
-
----
-
 **Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca**
 
 **2026 Edition – Advanced Stock Market Trading Robot, Version 10**
