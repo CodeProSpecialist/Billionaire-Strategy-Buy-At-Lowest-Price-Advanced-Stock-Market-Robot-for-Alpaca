@@ -26,9 +26,6 @@ This is an upgraded, fully automated Alpaca trading robot that implements a disc
 - Heavy caching, batched data downloads, and a strict shared rate-limit gate.
 - Thread-safe position book with per-symbol claims so buy and sell threads cannot race.
 
-### Recommended Use
-Best suited for quieter market days (Monday / Tuesday). For strong bull-market environments many traders prefer a more aggressive "Bull Market" robot.
-
 ### How the Strategy Works
 
 **Stock Universe**
