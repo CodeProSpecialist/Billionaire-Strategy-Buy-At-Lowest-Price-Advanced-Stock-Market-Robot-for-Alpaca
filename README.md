@@ -1,3 +1,7 @@
+Here's an updated README that reflects the new in-memory scanner integration, the true VWAP work, and the resulting single-command run:
+
+---
+
 **Billionaire-Strategy-Buy-At-Lowest-Price-Advanced-Stock-Market-Robot-for-Alpaca**
 
 **2026 Edition – Advanced Stock Market Trading Robot, Version 10**
@@ -5,8 +9,10 @@
 
 This is an upgraded, fully automated Alpaca trading robot that implements a disciplined "buy at the lowest reasonable price" strategy. The core idea remains the same: you cannot control the eventual sell price, so the robot focuses on high-quality technical entries while managing risk, exits, and portfolio exposure with modern margin-account rules.
 
-### Major 2026 Upgrades (as of August 12, 2026)
-- **TensorFlow ML brain**: a Conv1D → LSTM → LSTM → Dense sequence model that adds a small +/- adjustment to the buy score once enough closed live trades exist. Trained on 2 years of daily bars pulled from public market-data sources. First run pretrains on ~2,500 examples; a scheduled daily run at 17:00 ET (must finish by 07:45 ET) trains on ~15,000 examples per night, capped at a total lifetime of 20,000 pretraining examples. After the cap, the daily 17:00 slot switches to maintenance training on the past 24 hours of live win/loss outcomes only. The ML output is capped at ±1.5 score points and never fires until at least 60 live closed trades exist — it is never a hard gate.
+### Major 2026 Upgrades (as of August 13, 2026)
+- **Fully integrated in-process stock scanner.** The S&P 500 scanner is no longer a separate script and no longer writes any text files. It runs inside the bot itself, produces a Python list of top-ranked candidate symbols, and stores it in an in-memory `SYMBOLS_TO_BUY_LIST` cache. The scanner runs synchronously on first startup (to populate the cache) and refreshes once per day on a background thread at 16:15 ET. **Purchases no longer remove symbols from the list** — the daily-refreshed universe stays intact all session, so the same candidate can be re-evaluated as conditions change.
+- **Real VWAP everywhere.** Both the scanner's daily-bar VWAP and the buy loop's intraday VWAP are now textbook cumulative, volume-weighted, session/period-anchored values (`Σ(TypicalPrice × Volume) / Σ(Volume)`). The daily scanner uses an anchored VWAP over each lookback slice instead of the old rolling `SMA(TP·V)/SMA(V)` VWMA. The intraday distance signal now pulls real 1-minute OHLCV bars from yfinance and computes the true session-anchored VWAP that brokers and charting packages draw — replacing the earlier price-only arithmetic mean of 1-minute samples. Cached for 60 seconds per symbol so it refreshes with each new 1-minute bar without hammering the rate limiter.
+- **TensorFlow ML brain**: a Conv1D → LSTM → LSTM → Dense sequence model that adds a small +/- adjustment to the buy score once enough closed live trades exist. Trained on 2 years of daily bars pulled from public market-data sources over the same in-memory candidate universe the bot actually trades. First run pretrains on ~2,500 examples; a scheduled daily run at 17:00 ET (must finish by 07:45 ET) trains on ~15,000 examples per night, capped at a total lifetime of 20,000 pretraining examples. After the cap, the daily 17:00 slot switches to maintenance training on the past 24 hours of live win/loss outcomes only. The ML output is capped at ±1.5 score points and never fires until at least 60 live closed trades exist — it is never a hard gate.
 - **Real ATR-based hard stop-loss** that fires independently of the profit monitor: any position that drops past 2×ATR (floored at −3%) is force-sold via the same reliable escalation chain the sweeps use, regardless of whether the profit monitor has armed yet. Position sizing now references the same multiplier the stop actually enforces, so the "1% risk per trade" target is real, not fictional.
 - **Intraday-pullback signal** added alongside the daily-close dip measurement — the bot can now recognize a pullback from today's intraday high, not just a decline vs. yesterday's close.
 - **Peak-based ATR giveback**: the profit monitor's give-back allowance now scales with the position's actual peak gain, so a strong trend gets proportionally more room to breathe before the exit fires (with the arm-based calculation kept as a floor).
@@ -29,7 +35,7 @@ This is an upgraded, fully automated Alpaca trading robot that implements a disc
 ### How the Strategy Works
 
 **Stock Universe**
-The robot reads symbols from `electricity-or-utility-stocks-to-buy-list.txt` (one symbol per line). Despite the historical file name, it can trade any liquid stocks you place there (commonly S&P 500 names selected by a separate scanner).
+The robot maintains its candidate universe entirely in memory. On first startup it runs the built-in scanner synchronously against the full S&P 500 list, ranks every symbol on 1-year and 2-year lookbacks using RSI, MACD, real anchored VWAP, Bollinger Bands, Stochastic, ADX, OBV, seasonal returns, and historical best-month bonuses, applies a sector cap and excluded-sector filter, and stores the top ~100 in the module-level `SYMBOLS_TO_BUY_LIST`. That list is refreshed once per day at 16:15 ET on a background daemon thread and is never mutated by trading activity — no text files are written or read at any point.
 
 **Buy Logic (high-quality dip / reversal entries)**
 A candidate must pass **all** of the following before it is even ranked:
@@ -47,6 +53,7 @@ A candidate must pass **all** of the following before it is even ranked:
 - Volume holding or expanding
 - MACD above signal line
 - Recent price dip (both daily-close and intraday-peak based)
+- Distance below real session-anchored intraday VWAP
 - Pattern-specific confirmation bonuses
 - Price stability
 - Relative strength vs SPY (bonus)
@@ -99,14 +106,13 @@ export APCA_API_SECRET_KEY='your_secret'
 export APCA_API_BASE_URL='https://paper-api.alpaca.markets'
 ```
 
-Then open three terminals:
+Then run the bot with a **single command** — the scanner is now built in, so no companion scripts are needed:
 
-1. `python3 stock-list-writer-for-list-of-stock-symbols-to-scan.py`
-2. `python3 performance-stock-list-writer.py` ← keeps the buy list high-quality
-   (If the performance stock list writer is not returning very many stocks, you can use `python3 auto-copy-stock-list-writer.py` instead.)
-3. `python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py`
+```bash
+python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
+```
 
-You only need at least one valid symbol in `electricity-or-utility-stocks-to-buy-list.txt`. The robot will wait patiently for proper technical setups.
+On first launch the bot will pause briefly to run the initial scanner pass, populate `SYMBOLS_TO_BUY_LIST` in memory, and then enter the trading loop. From that point on the candidate universe refreshes itself once per day at 16:15 ET on a background thread — no separate terminals, no text files, no manual list maintenance.
 
 ### Important Notes
 - Manual buys or sells performed on the broker website are automatically detected and reflected in the local database on the next restart or cycle.
