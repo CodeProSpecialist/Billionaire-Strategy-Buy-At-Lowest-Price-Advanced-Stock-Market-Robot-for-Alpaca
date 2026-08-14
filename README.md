@@ -109,6 +109,7 @@ python3 billionaire-strategy-buy-lowest-price-stock-market-robot.py
 ```
 
 On first launch the bot will pause briefly to run the initial scanner pass, populate `SYMBOLS_TO_BUY_LIST` in memory, and then enter the trading loop. From that point on the candidate universe refreshes itself once per day at 16:15 ET on a background thread — no separate terminals, no text files, no manual list maintenance.
+( Give the program startup processes 15 to 30 minutes to compile a list of successful stocks.)
 
 ### Important Notes
 - Manual buys or sells performed on the broker website are automatically detected and reflected in the local database on the next restart or cycle.
